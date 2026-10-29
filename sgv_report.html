@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SGV Leaderboards</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface-0: #f6f5f2; --surface-1: #fcfcfb; --border: #e4e2dc; --grid: #ebe9e4;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+  --win: #2a78d6; --nd: #b4b2a9; --loss: #e34948; --actual: #7a7974;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-0: #121211; --surface-1: #1a1a19; --border: #2e2e2c; --grid: #262624;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e88;
+    --win: #3987e5; --nd: #55544f; --loss: #e66767; --actual: #8f8e88;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #121211; --surface-1: #1a1a19; --border: #2e2e2c; --grid: #262624;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e88;
+  --win: #3987e5; --nd: #55544f; --loss: #e66767; --actual: #8f8e88;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+       font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 860px; margin: 0 auto; padding: 28px 16px 48px; }
+h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.lede { color: var(--text-secondary); margin: 0 0 20px; max-width: 64ch; }
+.controls { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface-1); color: var(--text-secondary);
+              padding: 6px 14px; font: inherit; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--text-primary); color: var(--surface-1); }
+.note { color: var(--text-muted); font-size: 12.5px; }
+section.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+               padding: 18px 18px 12px; margin-bottom: 18px; }
+.card h2 { font-size: 17px; margin: 0; }
+.card .sub { color: var(--text-secondary); margin: 2px 0 10px; font-size: 13px; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-secondary);
+          margin-bottom: 6px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { font-family: inherit; }
+.name { fill: var(--text-primary); font-size: 13px; }
+.team { fill: var(--text-muted); font-size: 11.5px; }
+.val { fill: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
+.val strong, .strong { fill: var(--text-primary); font-weight: 600; }
+.axis { fill: var(--text-muted); font-size: 11px; }
+.row-hit { fill: transparent; }
+.row:hover .row-hit { fill: var(--grid); }
+details { margin-top: 8px; }
+summary { cursor: pointer; color: var(--text-secondary); font-size: 12.5px; }
+table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 12.5px;
+        font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--grid); }
+th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+th { color: var(--text-secondary); font-weight: 600; }
+.table-wrap { overflow-x: auto; }
+#tip { position: fixed; pointer-events: none; z-index: 10; background: var(--surface-1);
+       color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px;
+       padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0,0,0,.12);
+       opacity: 0; transition: opacity .08s; max-width: 260px; }
+#tip b { display: block; margin-bottom: 2px; }
+#tip .k { color: var(--text-secondary); }
+footer { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>SGV Leaderboards</h1>
+  <p class="lede">Starter Game Value credits each start as an SGV win, loss or no-decision based on the
+  pitching alone. It assumes a league-average offense and bullpen and adjusts for the ballpark.
+  A start is an SGV ND when it left the team a 40% - 60% chance to win.</p>
+  <div class="controls">
+    <div class="seg" id="seasons" role="group" aria-label="Season"></div>
+    <span class="note" id="qual"></span>
+  </div>
+  <div id="boards"></div>
+  <footer id="foot"></footer>
+</main>
+<div id="tip" role="tooltip"></div>
+<script>
+const DATA = [{"season": 2025, "qualifier": 20, "qualified": 117, "best": [{"name": "Paul Skenes", "team": "PIT", "gs": 32, "sgv": [22, 5, 5], "act": [10, 10, 12], "avg": -1.66, "swing": 17}, {"name": "Cristopher S\u00e1nchez", "team": "PHI", "gs": 32, "sgv": [22, 5, 5], "act": [13, 5, 14], "avg": -1.42, "swing": 9}, {"name": "Garrett Crochet", "team": "BOS", "gs": 32, "sgv": [22, 5, 5], "act": [18, 5, 9], "avg": -1.35, "swing": 4}, {"name": "Hunter Brown", "team": "HOU", "gs": 31, "sgv": [21, 5, 5], "act": [12, 9, 10], "avg": -1.31, "swing": 13}, {"name": "Tarik Skubal", "team": "DET", "gs": 31, "sgv": [19, 6, 6], "act": [13, 6, 12], "avg": -1.57, "swing": 6}, {"name": "Nathan Eovaldi", "team": "TEX", "gs": 22, "sgv": [15, 3, 4], "act": [11, 3, 8], "avg": -1.69, "swing": 4}, {"name": "Yoshinobu Yamamoto", "team": "LAD", "gs": 30, "sgv": [18, 6, 6], "act": [12, 8, 10], "avg": -1.23, "swing": 8}, {"name": "Max Fried", "team": "NYY", "gs": 32, "sgv": [19, 8, 5], "act": [19, 5, 8], "avg": -1.07, "swing": -3}, {"name": "Logan Webb", "team": "SF", "gs": 34, "sgv": [18, 7, 9], "act": [15, 11, 8], "avg": -0.75, "swing": 7}, {"name": "Zack Wheeler", "team": "PHI", "gs": 24, "sgv": [15, 5, 4], "act": [10, 5, 9], "avg": -1.25, "swing": 5}], "hardLuck": [{"name": "Paul Skenes", "team": "PIT", "gs": 32, "sgv": [22, 5, 5], "act": [10, 10, 12], "avg": -1.66, "swing": 17}, {"name": "Hunter Brown", "team": "HOU", "gs": 31, "sgv": [21, 5, 5], "act": [12, 9, 10], "avg": -1.31, "swing": 13}, {"name": "MacKenzie Gore", "team": "WSH", "gs": 30, "sgv": [11, 8, 11], "act": [5, 15, 10], "avg": -0.14, "swing": 13}, {"name": "Mitch Keller", "team": "PIT", "gs": 32, "sgv": [11, 8, 13], "act": [6, 15, 11], "avg": -0.2, "swing": 12}, {"name": "Cristopher S\u00e1nchez", "team": "PHI", "gs": 32, "sgv": [22, 5, 5], "act": [13, 5, 14], "avg": -1.42, "swing": 9}, {"name": "Chad Patrick", "team": "MIL", "gs": 23, "sgv": [9, 5, 9], "act": [3, 8, 12], "avg": -0.45, "swing": 9}, {"name": "Michael Wacha", "team": "KC", "gs": 31, "sgv": [14, 8, 9], "act": [10, 13, 8], "avg": -0.41, "swing": 9}, {"name": "Kyle Freeland", "team": "COL", "gs": 31, "sgv": [8, 11, 12], "act": [5, 17, 9], "avg": 0.1, "swing": 9}, {"name": "Yoshinobu Yamamoto", "team": "LAD", "gs": 30, "sgv": [18, 6, 6], "act": [12, 8, 10], "avg": -1.23, "swing": 8}, {"name": "Noah Cameron", "team": "KC", "gs": 24, "sgv": [15, 5, 4], "act": [9, 7, 8], "avg": -0.96, "swing": 8}], "fortunate": [{"name": "Charlie Morton", "team": "BAL/DET/ATL", "gs": 27, "sgv": [6, 14, 7], "act": [9, 10, 8], "avg": 0.88, "swing": -7}, {"name": "Brandon Pfaadt", "team": "AZ", "gs": 33, "sgv": [9, 12, 12], "act": [13, 9, 11], "avg": 0.49, "swing": -7}, {"name": "Jake Irvin", "team": "WSH", "gs": 33, "sgv": [6, 16, 11], "act": [9, 13, 11], "avg": 0.76, "swing": -6}, {"name": "Sandy Alcantara", "team": "MIA", "gs": 31, "sgv": [9, 15, 7], "act": [11, 12, 8], "avg": 0.56, "swing": -5}, {"name": "Walker Buehler", "team": "BOS/PHI", "gs": 24, "sgv": [7, 10, 7], "act": [9, 7, 8], "avg": 0.3, "swing": -5}, {"name": "Clayton Kershaw", "team": "LAD", "gs": 22, "sgv": [10, 6, 6], "act": [11, 2, 9], "avg": -0.57, "swing": -5}, {"name": "Sonny Gray", "team": "STL", "gs": 32, "sgv": [12, 10, 10], "act": [14, 8, 10], "avg": -0.01, "swing": -4}, {"name": "Tanner Bibee", "team": "CLE", "gs": 31, "sgv": [10, 13, 8], "act": [12, 11, 8], "avg": -0.11, "swing": -4}, {"name": "Casey Mize", "team": "DET", "gs": 28, "sgv": [11, 7, 10], "act": [14, 6, 8], "avg": -0.36, "swing": -4}, {"name": "Zac Gallen", "team": "AZ", "gs": 33, "sgv": [12, 17, 4], "act": [13, 15, 5], "avg": 0.27, "swing": -3}]}, {"season": 2026, "qualifier": 20, "qualified": 120, "best": [{"name": "Cam Schlittler", "team": "NYY", "gs": 33, "sgv": [25, 4, 4], "act": [14, 6, 13], "avg": -1.62, "swing": 13}, {"name": "Jacob Misiorowski", "team": "MIL", "gs": 30, "sgv": [21, 1, 8], "act": [16, 5, 9], "avg": -1.69, "swing": 9}, {"name": "Parker Messick", "team": "CLE", "gs": 32, "sgv": [21, 3, 8], "act": [12, 9, 11], "avg": -1.23, "swing": 15}, {"name": "Chris Sale", "team": "ATL", "gs": 27, "sgv": [18, 1, 8], "act": [14, 9, 4], "avg": -1.55, "swing": 12}, {"name": "Jes\u00fas Luzardo", "team": "PHI", "gs": 29, "sgv": [21, 6, 2], "act": [14, 5, 10], "avg": -1.15, "swing": 6}, {"name": "Yoshinobu Yamamoto", "team": "LAD", "gs": 28, "sgv": [16, 2, 10], "act": [14, 9, 5], "avg": -1.36, "swing": 9}, {"name": "Cristopher S\u00e1nchez", "team": "PHI", "gs": 33, "sgv": [20, 6, 7], "act": [18, 7, 8], "avg": -1.13, "swing": 3}, {"name": "Dylan Cease", "team": "TOR", "gs": 29, "sgv": [17, 4, 8], "act": [11, 6, 12], "avg": -1.32, "swing": 8}, {"name": "Drew Rasmussen", "team": "TB", "gs": 30, "sgv": [17, 5, 8], "act": [16, 5, 9], "avg": -1.15, "swing": 1}, {"name": "Nick Martinez", "team": "TB", "gs": 31, "sgv": [16, 4, 11], "act": [15, 6, 10], "avg": -0.91, "swing": 3}], "hardLuck": [{"name": "Parker Messick", "team": "CLE", "gs": 32, "sgv": [21, 3, 8], "act": [12, 9, 11], "avg": -1.23, "swing": 15}, {"name": "Cam Schlittler", "team": "NYY", "gs": 33, "sgv": [25, 4, 4], "act": [14, 6, 13], "avg": -1.62, "swing": 13}, {"name": "Griffin Jax", "team": "TB", "gs": 23, "sgv": [15, 3, 5], "act": [7, 8, 8], "avg": -0.67, "swing": 13}, {"name": "Tanner Bibee", "team": "CLE", "gs": 33, "sgv": [14, 9, 10], "act": [7, 15, 11], "avg": -0.06, "swing": 13}, {"name": "Chris Sale", "team": "ATL", "gs": 27, "sgv": [18, 1, 8], "act": [14, 9, 4], "avg": -1.55, "swing": 12}, {"name": "Walbert Ure\u00f1a", "team": "LAA", "gs": 27, "sgv": [16, 6, 5], "act": [9, 10, 8], "avg": -0.86, "swing": 11}, {"name": "Shane Baz", "team": "BAL", "gs": 31, "sgv": [12, 10, 9], "act": [6, 15, 10], "avg": -0.18, "swing": 11}, {"name": "Janson Junk", "team": "MIA", "gs": 25, "sgv": [14, 6, 5], "act": [6, 9, 10], "avg": -0.11, "swing": 11}, {"name": "Michael Wacha", "team": "KC", "gs": 32, "sgv": [17, 8, 7], "act": [9, 10, 13], "avg": -0.87, "swing": 10}, {"name": "Paul Skenes", "team": "PIT", "gs": 32, "sgv": [19, 10, 3], "act": [10, 11, 11], "avg": -0.45, "swing": 10}], "fortunate": [{"name": "Walker Buehler", "team": "SD", "gs": 32, "sgv": [9, 11, 12], "act": [9, 6, 17], "avg": 0.2, "swing": -5}, {"name": "Grayson Rodriguez", "team": "LAA", "gs": 20, "sgv": [4, 11, 5], "act": [5, 8, 7], "avg": 0.92, "swing": -4}, {"name": "Tomoyuki Sugano", "team": "COL", "gs": 29, "sgv": [8, 12, 9], "act": [12, 12, 5], "avg": 0.28, "swing": -4}, {"name": "Gavin Williams", "team": "CLE", "gs": 32, "sgv": [12, 10, 10], "act": [14, 8, 10], "avg": -0.43, "swing": -4}, {"name": "Matthew Boyd", "team": "CHC", "gs": 22, "sgv": [10, 8, 4], "act": [10, 5, 7], "avg": -0.28, "swing": -3}, {"name": "Chase Burns", "team": "CIN", "gs": 29, "sgv": [14, 5, 10], "act": [15, 3, 11], "avg": -0.95, "swing": -3}, {"name": "Zac Gallen", "team": "AZ", "gs": 20, "sgv": [3, 11, 6], "act": [3, 9, 8], "avg": 1.03, "swing": -2}, {"name": "Jacob Lopez", "team": "ATH", "gs": 24, "sgv": [7, 8, 9], "act": [6, 5, 13], "avg": 0.37, "swing": -2}, {"name": "MacKenzie Gore", "team": "TEX", "gs": 34, "sgv": [10, 15, 9], "act": [8, 11, 15], "avg": 0.1, "swing": -2}, {"name": "Bailey Ober", "team": "MIN", "gs": 24, "sgv": [7, 9, 8], "act": [7, 7, 10], "avg": 0.08, "swing": -2}]}];
+const META = {"wCut": -1.05, "lCut": 0.6, "band": "40% - 60%"};
+const NS = "http://www.w3.org/2000/svg";
+const ROW = 30, TOP = 8;
+let W = 760, LABEL = 190, NARROW = false;   // set from the container width in render()
+const tip = document.getElementById("tip");
+
+function el(tag, attrs = {}, text) {
+  const n = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+const rec = (a) => `${a[0]}-${a[1]}`;
+const recNd = (a) => `${a[0]}-${a[1]}-${a[2]}`;
+const net = (a) => a[0] - a[1];
+const signed = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n);
+
+function showTip(e, p) {
+  tip.innerHTML = `<b>${p.name} <span class="k">${p.team}</span></b>
+    <div><span class="k">Starts</span> ${p.gs}</div>
+    <div><span class="k">SGV W-L-ND</span> ${recNd(p.sgv)}</div>
+    <div><span class="k">Real W-L-ND</span> ${recNd(p.act)}</div>
+    <div><span class="k">Avg SGV</span> ${p.avg.toFixed(2)}</div>
+    <div><span class="k">Swing</span> ${signed(p.swing)} net wins</div>`;
+  tip.style.opacity = 1;
+  const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8);
+  const y = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8);
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function hideTip() { tip.style.opacity = 0; }
+
+function nameLabel(svg, p, i, y) {
+  const parts = p.name.split(" ");
+  const name = NARROW && parts.length > 1 ? `${parts[0][0]}. ${parts.slice(1).join(" ")}` : p.name;
+  svg.append(el("text", { x: 0, y: y + 4, class: "name" }, `${i + 1}. ${name}`));
+  if (!NARROW) {
+    svg.append(el("text", { x: LABEL - 6, y: y + 4, class: "team", "text-anchor": "end" }, p.team));
+  }
+}
+// One <g> per pitcher: hovering anywhere on the row (label, bar, dots) shows the tooltip.
+function rowGroup(svg, p, y) {
+  const g = el("g", { class: "row" });
+  g.append(el("rect", { x: 0, y: y - ROW / 2, width: W, height: ROW, class: "row-hit", rx: 4 }));
+  g.addEventListener("mousemove", (e) => showTip(e, p));
+  g.addEventListener("mouseleave", hideTip);
+  svg.append(g);
+  return g;
+}
+
+// Stacked W | ND | L bar, length = games started.
+function recordChart(rows) {
+  const maxGs = Math.max(...rows.map((r) => r.gs));
+  const plotW = W - LABEL - (NARROW ? 44 : 96);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${TOP + rows.length * ROW}`, role: "img",
+                         "aria-label": "Best SGV records, stacked SGV wins, no-decisions and losses" });
+  rows.forEach((p, i) => {
+    const y = TOP + i * ROW + ROW / 2;
+    const g = rowGroup(svg, p, y);
+    nameLabel(g, p, i, y);
+    let x = LABEL;
+    const segs = [[p.sgv[0], "var(--win)"], [p.sgv[2], "var(--nd)"], [p.sgv[1], "var(--loss)"]];
+    segs.forEach(([n, color]) => {
+      if (!n) return;
+      const w = (n / maxGs) * plotW;
+      g.append(el("rect", { x, y: y - 8, width: Math.max(w - 2, 1), height: 16, fill: color, rx: 3 }));
+      x += w;
+    });
+    const t = el("text", { x: x + 6, y: y + 4, class: "val" });
+    t.append(el("tspan", { class: "strong" }, rec(p.sgv)));
+    if (!NARROW) t.append(el("tspan", {}, ` · ${p.sgv[2]} ND`));
+    g.append(t);
+  });
+  return svg;
+}
+
+// Dumbbell: real net wins (hollow) -> SGV net wins (filled), shared scale per season.
+function swingChart(rows, lo, hi, color) {
+  const plotL = LABEL + 8, plotR = W - (NARROW ? 40 : 150);
+  const sx = (v) => plotL + ((v - lo) / (hi - lo)) * (plotR - plotL);
+  const h = TOP + rows.length * ROW + 22;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${h}`, role: "img",
+                         "aria-label": "Real net wins versus SGV net wins per pitcher" });
+  const step = NARROW ? 10 : 5;
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    svg.append(el("line", { x1: sx(v), x2: sx(v), y1: TOP - 4, y2: h - 18,
+                            stroke: v === 0 ? "var(--text-muted)" : "var(--grid)",
+                            "stroke-width": 1 }));
+    svg.append(el("text", { x: sx(v), y: h - 4, class: "axis", "text-anchor": "middle" }, signed(v)));
+  }
+  rows.forEach((p, i) => {
+    const y = TOP + i * ROW + ROW / 2;
+    const g = rowGroup(svg, p, y);
+    nameLabel(g, p, i, y);
+    const a = sx(net(p.act)), b = sx(net(p.sgv));
+    g.append(el("line", { x1: a, x2: b, y1: y, y2: y, stroke: color, "stroke-width": 2,
+                            "stroke-linecap": "round", opacity: 0.55 }));
+    g.append(el("circle", { cx: a, cy: y, r: 5, fill: "var(--surface-1)",
+                              stroke: "var(--actual)", "stroke-width": 2 }));
+    g.append(el("circle", { cx: b, cy: y, r: 5.5, fill: color,
+                              stroke: "var(--surface-1)", "stroke-width": 2 }));
+    const t = el("text", { x: plotR + 14, y: y + 4, class: "val" });
+    if (NARROW) {
+      t.append(el("tspan", { class: "strong" }, signed(p.swing)));
+    } else {
+      t.append(el("tspan", {}, `${rec(p.act)} → `));
+      t.append(el("tspan", { class: "strong" }, rec(p.sgv)));
+      t.append(el("tspan", {}, `  ${signed(p.swing)}`));
+    }
+    g.append(t);
+  });
+  return svg;
+}
+
+function table(rows) {
+  const wrap = document.createElement("div");
+  wrap.className = "table-wrap";
+  wrap.innerHTML = `<table><thead><tr><th>#</th><th>Pitcher</th><th>Team</th><th>GS</th>
+    <th>SGV W-L-ND</th><th>Real W-L-ND</th><th>Avg SGV</th><th>Swing</th></tr></thead><tbody>${
+    rows.map((p, i) => `<tr><td>${i + 1}</td><td>${p.name}</td><td>${p.team}</td><td>${p.gs}</td>
+      <td>${recNd(p.sgv)}</td><td>${recNd(p.act)}</td><td>${p.avg.toFixed(2)}</td>
+      <td>${signed(p.swing)}</td></tr>`).join("")}</tbody></table>`;
+  return wrap;
+}
+
+function card(title, sub, legendHtml, chart, rows) {
+  const s = document.createElement("section");
+  s.className = "card";
+  s.innerHTML = `<h2>${title}</h2><p class="sub">${sub}</p><div class="legend">${legendHtml}</div>`;
+  if (rows.length) {
+    s.append(chart);
+  } else {
+    s.insertAdjacentHTML("beforeend", `<p class="sub">No qualified starters yet.</p>`);
+  }
+  const d = document.createElement("details");
+  d.innerHTML = "<summary>Show as table</summary>";
+  d.append(table(rows));
+  s.append(d);
+  return s;
+}
+
+function render(season) {
+  const d = DATA.find((x) => x.season === season);
+  current = season;
+  W = Math.max(300, Math.round(document.getElementById("boards").clientWidth - 38));
+  NARROW = W < 560;
+  LABEL = NARROW ? 118 : 190;
+  document.querySelectorAll("#seasons button").forEach((b) =>
+    b.setAttribute("aria-pressed", String(+b.dataset.season === season)));
+  document.getElementById("qual").textContent =
+    `${d.qualified} qualified starters (min. ${d.qualifier} GS)`;
+  const swings = [...d.hardLuck, ...d.fortunate].flatMap((p) => [net(p.act), net(p.sgv)]);
+  const lo = Math.min(-5, Math.floor(Math.min(...swings) / 5) * 5);
+  const hi = Math.max(5, Math.ceil(Math.max(...swings) / 5) * 5);
+  const recLegend = `<span><i class="sw" style="background:var(--win)"></i>SGV W</span>
+    <span><i class="sw" style="background:var(--nd)"></i>SGV ND</span>
+    <span><i class="sw" style="background:var(--loss)"></i>SGV L</span>`;
+  const swLegend = (c) => `<span><i class="dot" style="border:2px solid var(--actual)"></i>Real record</span>
+    <span><i class="dot" style="background:${c}"></i>SGV record</span>
+    <span>Net wins (W−L) · swing = SGV net − real net</span>`;
+  const boards = document.getElementById("boards");
+  boards.replaceChildren(
+    card(`Best SGV Records — ${season}`,
+         "Most SGV wins over SGV losses. Bar length is games started.",
+         recLegend, recordChart(d.best), d.best),
+    card(`Hard-Luck Starters — ${season}`,
+         "Pitched better than their real record shows: run support or the bullpen let them down.",
+         swLegend("var(--win)"), swingChart(d.hardLuck, lo, hi, "var(--win)"), d.hardLuck),
+    card(`Fortunate Starters — ${season}`,
+         "Real record is better than their pitching earned: the offense or bullpen bailed them out.",
+         swLegend("var(--loss)"), swingChart(d.fortunate, lo, hi, "var(--loss)"), d.fortunate),
+  );
+  try { localStorage.setItem("sgv-season", season); } catch (e) {}
+}
+
+const seg = document.getElementById("seasons");
+DATA.forEach((d) => {
+  const b = document.createElement("button");
+  b.textContent = d.season; b.dataset.season = d.season;
+  b.addEventListener("click", () => render(d.season));
+  seg.append(b);
+});
+document.getElementById("foot").textContent =
+  `SGV W if SGV < ${META.wCut}, SGV L if SGV > ${META.lCut}. ` +
+  "Data: MLB Stats API; park factors: FanGraphs.";
+let current, start = DATA[DATA.length - 1].season;
+let resizeTimer;
+addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => render(current), 120);
+});
+try { const s = +localStorage.getItem("sgv-season"); if (DATA.some((d) => d.season === s)) start = s; } catch (e) {}
+render(start);
+</script>
+</body>
+</html>

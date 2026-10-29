@@ -1,0 +1,68 @@
+season,venue,home_team,games,park_factor
+2025,American Family Field,MIL,81,0.99
+2025,Angel Stadium,LAA,81,0.99
+2025,Bristol Motor Speedway,CIN,1,1.0
+2025,Busch Stadium,STL,81,0.98
+2025,Chase Field,AZ,81,1.0
+2025,Citi Field,NYM,80,0.98
+2025,Citizens Bank Park,PHI,81,1.03
+2025,Comerica Park,DET,81,1.01
+2025,Coors Field,COL,81,1.12
+2025,Daikin Park,HOU,81,0.99
+2025,Dodger Stadium,LAD,81,0.99
+2025,Fenway Park,BOS,81,1.03
+2025,George M. Steinbrenner Field,TB,81,1.01
+2025,Globe Life Field,TEX,81,0.98
+2025,Great American Ball Park,CIN,80,1.02
+2025,Journey Bank Ballpark,NYM,1,1.0
+2025,Kauffman Stadium,KC,81,1.03
+2025,Nationals Park,WSH,81,1.01
+2025,Oracle Park,SF,81,0.97
+2025,Oriole Park at Camden Yards,BAL,81,0.98
+2025,PNC Park,PIT,81,1.03
+2025,Petco Park,SD,81,0.96
+2025,Progressive Field,CLE,81,1.0
+2025,Rate Field,CWS,81,1.0
+2025,Rogers Centre,TOR,81,1.0
+2025,Sutter Health Park,ATH,81,1.08
+2025,T-Mobile Park,SEA,81,0.94
+2025,Target Field,MIN,81,1.0
+2025,Tokyo Dome,CHC,2,1.0
+2025,Truist Park,ATL,81,1.0
+2025,Wrigley Field,CHC,79,0.98
+2025,Yankee Stadium,NYY,81,1.0
+2025,loanDepot park,MIA,81,1.01
+2026,American Family Field,MIL,80,0.99
+2026,Angel Stadium,LAA,81,0.99
+2026,Busch Stadium,STL,81,0.98
+2026,Chase Field,AZ,79,1.0
+2026,Citi Field,NYM,81,0.98
+2026,Citizens Bank Park,PHI,81,1.03
+2026,Comerica Park,DET,81,1.01
+2026,Coors Field,COL,81,1.12
+2026,Daikin Park,HOU,81,0.99
+2026,Estadio Alfredo Harp Helu,AZ,2,1.0
+2026,Fenway Park,BOS,80,1.03
+2026,Field of Dreams,MIN,1,1.0
+2026,Globe Life Field,TEX,81,0.98
+2026,Great American Ball Park,CIN,81,1.02
+2026,Journey Bank Ballpark,MIL,1,1.0
+2026,Kauffman Stadium,KC,81,1.03
+2026,Las Vegas Ballpark,ATH,6,1.0
+2026,Nationals Park,WSH,81,1.01
+2026,Oracle Park,SF,81,0.97
+2026,Oriole Park at Camden Yards,BAL,81,0.98
+2026,PNC Park,PIT,81,1.03
+2026,Petco Park,SD,81,0.96
+2026,Progressive Field,CLE,81,1.0
+2026,Rate Field,CWS,81,1.0
+2026,Rogers Centre,TOR,81,1.0
+2026,Sutter Health Park,ATH,75,1.08
+2026,T-Mobile Park,SEA,81,0.94
+2026,Target Field,MIN,80,1.0
+2026,Tropicana Field,BOS/TB,82,1.01
+2026,Truist Park,ATL,81,1.0
+2026,UNIQLO Field at Dodger Stadium,LAD,81,0.99
+2026,Wrigley Field,CHC,81,0.98
+2026,Yankee Stadium,NYY,80,1.0
+2026,loanDepot park,MIA,81,1.01
