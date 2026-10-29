@@ -32,9 +32,11 @@ The first part estimates the runs the team allows over the whole game: the start
 
 The starter is charged with earned runs only, so defensive errors don't count against the pitcher. The bullpen is charged with all runs, because that's what a real bullpen gives up.
 
+**Early in a season**, a few weeks of games aren't enough for stable league averages. Until a season has 60 games per team (around late May), its bullpen RA9 and runs per game are blended with the previous season's values. The current season's weight is team games ÷ 60, so it counts for about 20% after two weeks and 50% after a month. Completed seasons are never blended.
+
 ### SGV W, SGV L and SGV ND
 
-The ND thresholds come from the data rather than being picked by hand. The script fits a logistic curve of the probability that the team wins against the SGV of the start, using every start loaded. A start is an **SGV ND** when that win probability is between **40% and 60%**, too close to call:
+The ND thresholds come from the data rather than being picked by hand. The script fits a logistic curve of the probability that the team wins against the SGV of the start. A start is an **SGV ND** when that win probability is between **40% and 60%**, too close to call:
 
 | Team win probability | SGV decision |
 |---|---|
@@ -43,6 +45,8 @@ The ND thresholds come from the data rather than being picked by hand. The scrip
 | below 40% | **SGV L**: the start was unlikely to produce a win |
 
 On 2025–2026 data this works out to **SGV W if SGV < −1.05** and **SGV L if SGV > +0.60**. Teams won 73% of SGV W starts, 50% of SGV ND starts and 23% of SGV L starts. Very short starts, such as openers or starters pulled early, land in the ND zone on their own, because the game is mostly left to the bullpen.
+
+**Thresholds are fixed for each season.** A new season's thresholds are calibrated once, on all *earlier* seasons, and saved in `nd_thresholds.csv`. A pitcher's record therefore never changes because the cut-offs moved mid-season, only because of new starts. 2027 uses the 2025–2026 calibration; 2028 will be calibrated on 2025–2027 on its first run, and so on. 2025 and 2026 both use the 2025–2026 calibration. To recalibrate a season, delete its row in `nd_thresholds.csv` and run the script again.
 
 ### What SGV removes from W-L, and what it doesn't
 
@@ -88,9 +92,9 @@ python sgv.py
 This scores the 2025 and 2026 regular seasons and then:
 
 1. downloads every finished game and its box score from the MLB Stats API, the first time only (about 2 minutes);
-2. works out each season's league bullpen RA9 and runs per team per game;
+2. works out each season's league bullpen RA9 and runs per team per game, blended with the previous season early in a season;
 3. reads the park factors from `park_factors.csv`;
-4. fits the win-probability curve and the ND thresholds;
+4. reads each season's ND thresholds from `nd_thresholds.csv`, calibrating and saving them for a new season;
 5. writes `sgv_records.xlsx` and `sgv_report.html`, and opens the report in your browser.
 
 ### Outputs
@@ -101,7 +105,7 @@ This scores the 2025 and 2026 regular seasons and then:
 |---|---|
 | **SGV Records** | One row per starting pitcher and season: GS, SGV W, SGV L, SGV ND, SGV W-L, average SGV, and the actual W, L, ND and W-L. GS = W + L + ND. |
 | **Starts** | Every start: date, teams, ballpark, park factor, IP, ER, SGV, win probability, SGV decision, actual decision and team result |
-| **Model** | League averages and SGV totals per season, and the ND thresholds used |
+| **Model** | One row per season: games, the weight of the current season, league averages (season-to-date and used), ND thresholds and the seasons they were calibrated on, and SGV W/L/ND totals |
 
 **`sgv_report.html`** has three leaderboards per season, for qualified starters (at least 1 GS per 8 team games, which is 20 GS over a full season):
 
@@ -116,14 +120,14 @@ The *swing* is (SGV W − SGV L) − (real W − real L). Hover a row for the fu
 | Option | Effect |
 |---|---|
 | `--seasons 2026 2027` | Seasons to score (default `2025 2026`) |
-| `--nd-band 0.35` | Width of the ND zone: 0.35 means SGV ND at 35–65% win probability (default 0.40) |
+| `--nd-band 0.35` | Width of the ND zone: 0.35 means SGV ND at 35–65% win probability (default 0.40). Applies to seasons not yet in `nd_thresholds.csv`; delete a season's row to apply it there |
 | `--watch 60` | Keep running and update every 60 minutes (live mode) |
 | `--refresh-days 3` | Re-download box scores from the last N days to pick up official scoring changes (default 3) |
 | `--no-open` | Don't open the report in the browser |
 
 ### Live use during a season
 
-Box scores of finished games are saved in `cache/` (about 2 KB per game), so later runs only download new games and take a few seconds. During a season the league averages are season-to-date. Include the previous seasons so the ND thresholds stay stable from opening day:
+Box scores of finished games are saved in `cache/` (about 2 KB per game), so later runs only download new games and take a few seconds. Always include the previous seasons: the previous season is needed to blend the early-season league averages, and all earlier seasons are used to calibrate a new season's ND thresholds.
 
 ```bash
 python sgv.py --seasons 2025 2026 2027 --watch 60
@@ -152,6 +156,7 @@ The page shows "Updated through games of …" with the date of the last game inc
 
 - **March, before opening day:** check `park_factors.csv`. New-season rows for known ballparks are filled in automatically with the previous season's value and marked `carried from … - check FanGraphs` in the `note` column. Update the values from FanGraphs when they're published and clear the note. A **brand-new ballpark** is left blank, and the run **fails** until you fill it in. GitHub emails you about the failed run, and the error lists the missing ballparks.
 - **Re-enable the schedule if needed:** GitHub pauses scheduled workflows in a repository with no activity for 60 days, which can happen over the off-season. If the Actions tab shows the workflow as disabled, click **Enable workflow**.
+- **Opening day:** nothing to do. The new season's ND thresholds are calibrated on its first run and saved in `nd_thresholds.csv`, which the workflow commits. Early-season league averages are blended with last season's automatically; the page shows the current blend in its footer.
 - **During the season:** nothing to do. Official scoring changes from the last 3 days are picked up automatically.
 
 ### Park factors
@@ -176,7 +181,7 @@ season,venue,home_team,games,park_factor,note
 python test_sgv.py
 ```
 
-The tests run the whole pipeline offline on a small simulated season, without contacting the API. They check the formula against hand calculations, extra-inning starts, openers, postponed and suspended games, neutral sites, the curve fit and its ND thresholds, park factors carried to a new season, the trimmed box-score cache, and that GS = W + L + ND for every pitcher.
+The tests run the whole pipeline offline on a small simulated season, without contacting the API. They check the formula against hand calculations, extra-inning starts, openers, postponed and suspended games, neutral sites, the curve fit and its ND thresholds, thresholds calibrated on earlier seasons and then kept fixed, early-season blending, park factors carried to a new season, the trimmed box-score cache, and that GS = W + L + ND for every pitcher.
 
 ---
 
@@ -193,6 +198,7 @@ The tests run the whole pipeline offline on a small simulated season, without co
 | `sgv.py` | Main script: data download, SGV calculation, Excel output |
 | `sgv_report.py` | HTML leaderboards |
 | `park_factors.csv` | Park factors per season and ballpark |
+| `nd_thresholds.csv` | ND thresholds per season (fixed once calibrated) |
 | `test_sgv.py` | Offline tests |
 | `.github/workflows/sgv-daily.yml` | Daily update and GitHub Pages publication |
 | `sgv_records.xlsx`, `sgv_report.html` | Latest results (updated daily during the season) |

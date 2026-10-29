@@ -43,16 +43,16 @@ jobs:
         run: python sgv.py --no-open --seasons $(seq 2025 "$(date -u +%Y)")
 
       # The Excel file changes on every save (timestamps), so commit only when the
-      # leaderboards or park factors actually changed.
+      # leaderboards, park factors or ND thresholds actually changed.
       - name: Commit updated results
         run: |
-          if git diff --quiet -- sgv_report.html park_factors.csv; then
+          if git diff --quiet -- sgv_report.html park_factors.csv nd_thresholds.csv; then
             echo "No new games since the last update."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          git add sgv_records.xlsx sgv_report.html park_factors.csv
+          git add sgv_records.xlsx sgv_report.html park_factors.csv nd_thresholds.csv
           git commit -m "SGV update $(date -u +%Y-%m-%d)"
           git push
 

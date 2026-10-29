@@ -11,6 +11,7 @@ sgv.CACHE_DIR = tmp / "cache"
 sgv.PARK_FACTORS_FILE = tmp / "park_factors.csv"
 sgv.OUTPUT_FILE = tmp / "out.xlsx"
 sgv.REPORT_FILE = tmp / "report.html"
+sgv.THRESHOLDS_FILE = tmp / "nd_thresholds.csv"
 
 TEAMS = {1: "COL", 2: "SDP", 3: "LAD", 4: "CHC"}
 VENUE = {1: "Coors Field", 2: "Petco Park", 3: "Dodger Stadium", 4: "Wrigley Field"}
@@ -142,6 +143,34 @@ assert pf[(2027, "Coors Field")]["park_factor"] == 1.10
 assert pf[(2027, "Coors Field")]["note"] == "carried from 2025 - check FanGraphs"
 assert pf[(2027, "Brand New Park")]["park_factor"] is None
 assert pf[(2025, "Coors Field")]["note"] == ""
+
+# early-season blending: weight grows with team games, 100% at BLEND_GAMES, none without a prior season
+prev = {"runs_per_team_game": 4.5, "bullpen_ra9": 4.5}
+early = sgv.blend_league_averages({"games": 150, "runs_per_team_game": 3.5, "bullpen_ra9": 5.5}, prev)
+assert early["team_games"] == 10 and abs(early["current_weight"] - 10 / sgv.BLEND_GAMES) < 1e-3
+assert abs(early["runs_per_team_game"] - (3.5 / 6 + 4.5 * 5 / 6)) < 1e-9
+assert abs(early["bullpen_ra9"] - (5.5 / 6 + 4.5 * 5 / 6)) < 1e-9
+full = sgv.blend_league_averages({"games": 2430, "runs_per_team_game": 4.4, "bullpen_ra9": 4.6}, prev)
+assert full["current_weight"] == 1 and full["runs_per_team_game"] == 4.4
+alone = sgv.blend_league_averages({"games": 150, "runs_per_team_game": 3.5, "bullpen_ra9": 5.5}, None)
+assert alone["current_weight"] == 1 and alone["runs_per_team_game"] == 3.5
+
+# ND thresholds: a new season is calibrated on earlier seasons only, then frozen
+sgv.THRESHOLDS_FILE.unlink()
+rng = np.random.default_rng(1)
+fake = []
+for season, shift in ((2025, 0.0), (2026, 0.0), (2027, 3.0)):   # 2027 behaves very differently
+    x = rng.normal(0, 2, 3000)
+    won = rng.random(x.size) < 1 / (1 + np.exp(-(-0.1 - 0.5 * (x - shift))))
+    fake += [{"season": season, "SGV": v, "team_result": "W" if w else "L"} for v, w in zip(x, won)]
+th = sgv.season_thresholds(fake, 0.40)
+assert th[2025]["calibrated_on"] == "2025-2027"          # earliest season: all seasons loaded
+assert th[2026]["calibrated_on"] == "2025"
+assert th[2027]["calibrated_on"] == "2025-2026"          # not influenced by 2027's own data
+assert abs(th[2027]["sgv_w_below"] - th[2026]["sgv_w_below"]) < 0.3
+saved = dict(th[2027])
+th2 = sgv.season_thresholds(fake + [{"season": 2027, "SGV": 5.0, "team_result": "W"}] * 500, 0.35)
+assert th2[2027]["sgv_w_below"] == saved["sgv_w_below"] and th2[2027]["nd_band"] == 0.40  # frozen
 
 shutil.rmtree(tmp)
 print("ALL CHECKS PASSED")

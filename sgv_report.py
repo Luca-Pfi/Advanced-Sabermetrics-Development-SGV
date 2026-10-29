@@ -9,7 +9,6 @@ Three boards per season, for qualified starters:
 "Swing" = (SGV W - SGV L) - (Actual W - Actual L), in net wins.
 """
 
-import html
 import json
 
 TOP_N = 10
@@ -47,18 +46,22 @@ def season_boards(df, season, team_games):
             "best": best, "hardLuck": hard_luck, "fortunate": fortunate}
 
 
-def write_report(df, league_rows, calibration, path):
-    team_games = {r["season"]: 2 * r["games"] / 30 for r in league_rows}
+def write_report(df, league_rows, thresholds, path):
+    league = {r["season"]: r for r in league_rows}
     seasons = sorted(df["season"].unique())
-    data = [season_boards(df, int(s), team_games[s]) for s in seasons]
-    meta = {
-        "wCut": calibration["SGV W if SGV below"],
-        "lCut": calibration["SGV L if SGV above"],
-        "band": calibration["ND band (team win probability)"],
-        "through": str(df["date"].max()),   # last game in the data, not the run time
-    }
+    data = []
+    for s in seasons:
+        board = season_boards(df, int(s), league[s]["team_games"])
+        t = thresholds[s]
+        board.update({
+            "wCut": round(t["sgv_w_below"], 2), "lCut": round(t["sgv_l_above"], 2),
+            "band": f"{t['nd_band']:.0%} - {1 - t['nd_band']:.0%}",
+            "calibratedOn": t["calibrated_on"],
+            "currentWeight": league[s]["current_weight"],
+        })
+        data.append(board)
+    meta = {"through": str(df["date"].max())}   # last game in the data, not the run time
     page = TEMPLATE.replace("__DATA__", json.dumps(data)).replace("__META__", json.dumps(meta))
-    page = page.replace("__BAND__", html.escape(meta["band"]))
     path.write_text(page, encoding="utf-8")
 
 
@@ -144,7 +147,7 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
   <p class="note" id="through"></p>
   <p class="lede">Starter Game Value credits each start as an SGV win, loss or no-decision based on the
   pitching alone. It assumes a league-average offense and bullpen and adjusts for the ballpark.
-  A start is an SGV ND when it left the team a __BAND__ chance to win.</p>
+  A start is an SGV ND when it left the team a <span id="band"></span> chance to win.</p>
   <div class="controls">
     <div class="seg" id="seasons" role="group" aria-label="Season"></div>
     <span class="note" id="qual"></span>
@@ -298,6 +301,15 @@ function card(title, sub, legendHtml, chart, rows) {
 function render(season) {
   const d = DATA.find((x) => x.season === season);
   current = season;
+  document.getElementById("band").textContent = d.band;
+  const blend = d.currentWeight < 1
+    ? `Early season: league averages are ${Math.round(d.currentWeight * 100)}% ${season} and ` +
+      `${Math.round((1 - d.currentWeight) * 100)}% ${season - 1} until ${season} has enough games. `
+    : "";
+  document.getElementById("foot").textContent = blend +
+    `${season} thresholds (fixed for the season, calibrated on ${d.calibratedOn}): ` +
+    `SGV W if SGV < ${d.wCut}, SGV L if SGV > ${d.lCut}. ` +
+    "Data: MLB Stats API; park factors: FanGraphs.";
   W = Math.max(300, Math.round(document.getElementById("boards").clientWidth - 38));
   NARROW = W < 560;
   LABEL = NARROW ? 118 : 190;
@@ -339,9 +351,6 @@ DATA.forEach((d) => {
 document.getElementById("through").textContent = "Updated through games of " +
   new Date(META.through + "T12:00:00").toLocaleDateString("en-US",
     { month: "long", day: "numeric", year: "numeric" });
-document.getElementById("foot").textContent =
-  `SGV W if SGV < ${META.wCut}, SGV L if SGV > ${META.lCut}. ` +
-  "Data: MLB Stats API; park factors: FanGraphs.";
 let current, start = DATA[DATA.length - 1].season;
 let resizeTimer;
 addEventListener("resize", () => {

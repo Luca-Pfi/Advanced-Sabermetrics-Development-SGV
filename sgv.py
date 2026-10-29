@@ -8,18 +8,22 @@ SGV Win, SGV Loss or SGV No-Decision, independent of the real game result:
 
 The starter is charged with earned runs only; the bullpen term uses the
 league bullpen RA9 (all runs, earned or not, per 9 IP). League bullpen RA9 and
-runs per team per game are computed from that season's own games
-(season-to-date for a season in progress). Park factors are read from
-park_factors.csv, filled in by hand from FanGraphs.
+runs per team per game are computed from that season's own games. Early in a
+season they are blended with the previous season's values: the current season
+weighs team_games / 60 (100% from about late May). Park factors are read from
+park_factors.csv (FanGraphs); known ballparks carry over to a new season.
 
-No-decision zone: the ND thresholds are not fixed numbers but come from the
-data. A logistic curve P(team wins | SGV) is fitted on every start loaded, and
-a start is an SGV ND when that win probability lies inside the ND band
-(default 40%-60%, i.e. too close to call):
+No-decision zone: a logistic curve P(team wins | SGV) is fitted, and a start
+is an SGV ND when that win probability lies inside the ND band (default
+40%-60%, i.e. too close to call):
 
     P(win) >  60%  -> SGV W   (gave the team a realistic chance to win)
     P(win) <  40%  -> SGV L
     otherwise      -> SGV ND
+
+Each season's thresholds are calibrated once, on all earlier seasons, and
+saved in nd_thresholds.csv, so they stay fixed for the whole season. Delete a
+season's row there to recalibrate it.
 
 Data comes from the MLB Stats API (statsapi.mlb.com, free, no key).
 Box scores of finished games are cached in ./cache, so re-running during a
@@ -27,7 +31,7 @@ season only downloads the new games ("live" mode).
 
 Usage:
     python sgv.py                         # 2025 and 2026 seasons
-    python sgv.py --seasons 2027          # any season(s)
+    python sgv.py --seasons 2025 2026 2027  # include earlier seasons for blending/calibration
     python sgv.py --watch 60              # re-run every 60 minutes
 
 Outputs: sgv_records.xlsx (records, every start, model) and sgv_report.html
@@ -56,8 +60,10 @@ CACHE_DIR = HERE / "cache"
 PARK_FACTORS_FILE = HERE / "park_factors.csv"
 OUTPUT_FILE = HERE / "sgv_records.xlsx"
 REPORT_FILE = HERE / "sgv_report.html"
+THRESHOLDS_FILE = HERE / "nd_thresholds.csv"
 
 ND_BAND = 0.40          # SGV ND when the team's win probability is between 40% and 60%
+BLEND_GAMES = 60        # league averages are 100% current season after 60 team games
 DEFAULT_SEASONS = [2025, 2026]
 SKIPPED_STATES = ("Postponed", "Cancelled", "Suspended")
 
@@ -275,6 +281,88 @@ def sgv_decision(sgv, w_cut, l_cut):
     return "ND"
 
 
+def blend_league_averages(season_to_date, previous):
+    """Early in a season, mix the season-to-date league averages with last season's.
+
+    The current season's weight grows linearly with team games played and reaches
+    100% at BLEND_GAMES (about late May); a finished season is never blended.
+    """
+    team_games = 2 * season_to_date["games"] / 30
+    weight = min(1.0, team_games / BLEND_GAMES) if previous else 1.0
+    league = {"games": season_to_date["games"], "team_games": round(team_games, 1),
+              "current_weight": round(weight, 3)}
+    for key in ("runs_per_team_game", "bullpen_ra9"):
+        league[f"{key}_season_to_date"] = season_to_date[key]
+        league[key] = (weight * season_to_date[key]
+                       + (1 - weight) * (previous[key] if previous else 0))
+    return league
+
+
+# --------------------------------------------------------------------------
+# ND thresholds, frozen per season in nd_thresholds.csv
+# --------------------------------------------------------------------------
+
+THRESHOLD_COLUMNS = ["season", "nd_band", "sgv_w_below", "sgv_l_above",
+                     "curve_a", "curve_b", "calibrated_on", "starts"]
+
+
+def load_thresholds():
+    if not THRESHOLDS_FILE.exists():
+        return {}
+    with THRESHOLDS_FILE.open(newline="", encoding="utf-8-sig") as f:
+        rows = {}
+        for r in csv.DictReader(f):
+            rows[int(r["season"])] = {
+                **r, **{k: float(r[k]) for k in
+                        ("nd_band", "sgv_w_below", "sgv_l_above", "curve_a", "curve_b")}}
+        return rows
+
+
+def save_thresholds(thresholds):
+    with THRESHOLDS_FILE.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=THRESHOLD_COLUMNS, extrasaction="ignore")
+        w.writeheader()
+        for season in sorted(thresholds):
+            w.writerow({**thresholds[season], "season": season})
+
+
+def season_thresholds(all_starts, band):
+    """ND thresholds for every season scored.
+
+    A season's thresholds are calibrated once - on all EARLIER seasons loaded
+    (the earliest season, having none, uses every season loaded) - then saved
+    to nd_thresholds.csv and kept for the whole season, so records don't shift
+    from day to day. Delete a season's row to recalibrate it.
+    """
+    thresholds = load_thresholds()
+    seasons = sorted({s["season"] for s in all_starts})
+    changed = False
+    for season in seasons:
+        stored = thresholds.get(season)
+        if stored:
+            if abs(stored["nd_band"] - band) > 1e-9:
+                print(f"[{season}] using the saved ND band {stored['nd_band']:.0%} "
+                      f"(delete its row in {THRESHOLDS_FILE.name} to recalibrate)")
+            continue
+        basis = [s for s in all_starts if s["season"] < season] or all_starts
+        basis_seasons = sorted({s["season"] for s in basis})
+        coef = fit_win_curve([s["SGV"] for s in basis],
+                             [s["team_result"] == "W" for s in basis])
+        w_cut, l_cut = nd_thresholds(coef, band)
+        thresholds[season] = {
+            "nd_band": band, "sgv_w_below": round(w_cut, 3), "sgv_l_above": round(l_cut, 3),
+            "curve_a": round(coef[0], 5), "curve_b": round(coef[1], 5),
+            "calibrated_on": "-".join(map(str, dict.fromkeys([basis_seasons[0], basis_seasons[-1]]))),
+            "starts": len(basis),
+        }
+        changed = True
+        print(f"[{season}] ND thresholds calibrated on {thresholds[season]['calibrated_on']}: "
+              f"SGV W below {w_cut:.2f}, SGV L above {l_cut:.2f} (saved)")
+    if changed:
+        save_thresholds(thresholds)
+    return {season: thresholds[season] for season in seasons}
+
+
 # --------------------------------------------------------------------------
 # Park factors (filled in by hand from FanGraphs)
 # --------------------------------------------------------------------------
@@ -347,8 +435,9 @@ def run(seasons, band, refresh_days, open_report=False):
     refresh_since = (pd.Timestamp.today() - pd.Timedelta(days=refresh_days)).strftime("%Y-%m-%d")
     pf = load_park_factors()
     all_starts, league_rows, missing = [], [], []
+    league_by_season = {}
 
-    for season in seasons:
+    for season in sorted(seasons):
         print(f"[{season}] fetching schedule ...")
         games = fetch_final_games(season)
         if not games:
@@ -357,11 +446,16 @@ def run(seasons, band, refresh_days, open_report=False):
         abbrevs = fetch_team_abbreviations(season)
         print(f"[{season}] {len(games)} finished games, loading box scores ...")
         boxes = fetch_boxscores(games, refresh_since)
-        starts, league = extract_starts(games, boxes, abbrevs)
+        starts, season_to_date = extract_starts(games, boxes, abbrevs)
         update_park_factor_file(pf, season, starts)
+        league = blend_league_averages(season_to_date, league_by_season.get(season - 1))
+        league_by_season[season] = league
         league_rows.append({"season": season, **league})
+        blend = (f" ({league['current_weight']:.0%} {season}, "
+                 f"{1 - league['current_weight']:.0%} {season - 1})"
+                 if league["current_weight"] < 1 else "")
         print(f"[{season}] bullpen RA9 {league['bullpen_ra9']:.2f}, "
-              f"runs/team/game {league['runs_per_team_game']:.2f}")
+              f"runs/team/game {league['runs_per_team_game']:.2f}{blend}")
 
         for s in starts:
             factor = pf[(season, s["venue"])]["park_factor"]
@@ -381,25 +475,14 @@ def run(seasons, band, refresh_days, open_report=False):
             print(f"  {season}  {venue}")
         return False
 
-    # ND zone calibrated on all starts loaded (past seasons keep it stable early in a new one).
-    coef = fit_win_curve([s["SGV"] for s in all_starts],
-                         [s["team_result"] == "W" for s in all_starts])
-    w_cut, l_cut = nd_thresholds(coef, band)
+    thresholds = season_thresholds(all_starts, band)
     for s in all_starts:
-        s["win_prob"] = win_probability(s["SGV"], coef)
-        s["SGV_dec"] = sgv_decision(s["SGV"], w_cut, l_cut)
-    calibration = {
-        "ND band (team win probability)": f"{band:.0%} - {1 - band:.0%}",
-        "SGV W if SGV below": round(w_cut, 2),
-        "SGV L if SGV above": round(l_cut, 2),
-        "SGV at 50% win probability": round(-coef[0] / coef[1], 2),
-        "starts used for calibration": len(all_starts),
-    }
-    print(f"\nND zone: SGV {w_cut:.2f} to {l_cut:.2f} "
-          f"(team win probability {band:.0%}-{1 - band:.0%})")
+        t = thresholds[s["season"]]
+        s["win_prob"] = win_probability(s["SGV"], (t["curve_a"], t["curve_b"]))
+        s["SGV_dec"] = sgv_decision(s["SGV"], t["sgv_w_below"], t["sgv_l_above"])
 
-    write_output(all_starts, league_rows, seasons, calibration)
-    write_report(pd.DataFrame(all_starts), league_rows, calibration, REPORT_FILE)
+    write_output(all_starts, league_rows, seasons, thresholds)
+    write_report(pd.DataFrame(all_starts), league_rows, thresholds, REPORT_FILE)
     print(f"\nWrote {OUTPUT_FILE}\nWrote {REPORT_FILE}")
     if open_report:
         webbrowser.open(REPORT_FILE.as_uri())
@@ -410,7 +493,7 @@ def counts(df, col):
     return tuple(int((df[col] == x).sum()) for x in ("W", "L", "ND"))
 
 
-def write_output(starts, league_rows, seasons, calibration):
+def write_output(starts, league_rows, seasons, thresholds):
     df = pd.DataFrame(starts)
     seasons = [s for s in seasons if (df["season"] == s).any()]
     rows = []
@@ -443,19 +526,33 @@ def write_output(starts, league_rows, seasons, calibration):
     detail["SGV"] = detail["SGV"].round(2)
     detail["win_prob"] = detail["win_prob"].round(3)
 
-    model = pd.DataFrame(league_rows).round(3)
-    for season in seasons:
+    model_rows = []
+    for lg in league_rows:
+        season = lg["season"]
         s = df[df["season"] == season]
-        model.loc[model["season"] == season, "starts"] = len(s)
-        for dec in ("W", "L", "ND"):
-            model.loc[model["season"] == season, f"SGV {dec}"] = int((s["SGV_dec"] == dec).sum())
-    cal = pd.DataFrame(list(calibration.items()), columns=["ND threshold", "value"])
+        t = thresholds[season]
+        model_rows.append({
+            "Season": season,
+            "Games": lg["games"],
+            "Team games": lg["team_games"],
+            "Weight of this season": lg["current_weight"],
+            "Bullpen RA9 (season to date)": lg["bullpen_ra9_season_to_date"],
+            "Bullpen RA9 (used)": lg["bullpen_ra9"],
+            "Runs/team/game (season to date)": lg["runs_per_team_game_season_to_date"],
+            "Runs/team/game (used)": lg["runs_per_team_game"],
+            "ND band": f"{t['nd_band']:.0%} - {1 - t['nd_band']:.0%}",
+            "SGV W if SGV below": t["sgv_w_below"],
+            "SGV L if SGV above": t["sgv_l_above"],
+            "Thresholds calibrated on": t["calibrated_on"],
+            "Starts": len(s),
+            **{f"SGV {d}": int((s["SGV_dec"] == d).sum()) for d in ("W", "L", "ND")},
+        })
+    model = pd.DataFrame(model_rows).round(3)
 
     with pd.ExcelWriter(OUTPUT_FILE, engine="openpyxl") as xl:
         summary.to_excel(xl, sheet_name="SGV Records", index=False)
         detail.to_excel(xl, sheet_name="Starts", index=False)
         model.to_excel(xl, sheet_name="Model", index=False)
-        cal.to_excel(xl, sheet_name="Model", index=False, startcol=len(model.columns) + 1)
         for ws in xl.sheets.values():
             ws.freeze_panes = "B2"
             ws.auto_filter.ref = ws.dimensions
@@ -470,7 +567,8 @@ def main():
                     help="seasons to score (default: 2025 2026)")
     ap.add_argument("--nd-band", type=float, default=ND_BAND,
                     help="SGV ND when team win probability is between this and 1 minus this "
-                         "(default 0.40 = 40%%-60%%)")
+                         "(default 0.40 = 40%%-60%%); applies to seasons not yet in "
+                         "nd_thresholds.csv")
     ap.add_argument("--refresh-days", type=int, default=3,
                     help="re-download box scores from the last N days (scoring changes)")
     ap.add_argument("--no-open", action="store_true",
