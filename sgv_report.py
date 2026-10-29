@@ -55,6 +55,7 @@ def write_report(df, league_rows, calibration, path):
         "wCut": calibration["SGV W if SGV below"],
         "lCut": calibration["SGV L if SGV above"],
         "band": calibration["ND band (team win probability)"],
+        "through": str(df["date"].max()),   # last game in the data, not the run time
     }
     page = TEMPLATE.replace("__DATA__", json.dumps(data)).replace("__META__", json.dumps(meta))
     page = page.replace("__BAND__", html.escape(meta["band"]))
@@ -92,7 +93,8 @@ TEMPLATE = r"""<!doctype html>
 body { margin: 0; background: var(--surface-0); color: var(--text-primary);
        font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 main { max-width: 860px; margin: 0 auto; padding: 28px 16px 48px; }
-h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+h1 { font-size: 26px; margin: 0 0 2px; letter-spacing: -0.01em; }
+#through { margin: 0 0 10px; }
 .lede { color: var(--text-secondary); margin: 0 0 20px; max-width: 64ch; }
 .controls { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
@@ -139,6 +141,7 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
 <body>
 <main>
   <h1>SGV Leaderboards</h1>
+  <p class="note" id="through"></p>
   <p class="lede">Starter Game Value credits each start as an SGV win, loss or no-decision based on the
   pitching alone. It assumes a league-average offense and bullpen and adjusts for the ballpark.
   A start is an SGV ND when it left the team a __BAND__ chance to win.</p>
@@ -333,6 +336,9 @@ DATA.forEach((d) => {
   b.addEventListener("click", () => render(d.season));
   seg.append(b);
 });
+document.getElementById("through").textContent = "Updated through games of " +
+  new Date(META.through + "T12:00:00").toLocaleDateString("en-US",
+    { month: "long", day: "numeric", year: "numeric" });
 document.getElementById("foot").textContent =
   `SGV W if SGV < ${META.wCut}, SGV L if SGV > ${META.lCut}. ` +
   "Data: MLB Stats API; park factors: FanGraphs.";

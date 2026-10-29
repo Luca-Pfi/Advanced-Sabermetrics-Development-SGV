@@ -37,6 +37,7 @@ Outputs: sgv_records.xlsx (records, every start, model) and sgv_report.html
 import argparse
 import csv
 import json
+import sys
 import time
 import webbrowser
 from collections import defaultdict
@@ -109,12 +110,41 @@ def fetch_final_games(season):
     return sorted(games.values(), key=lambda g: (g["date"], g["gamePk"]))
 
 
+PITCHING_FIELDS = ("outs", "inningsPitched", "earnedRuns", "runs", "gamesStarted", "wins", "losses")
+
+
+def slim_boxscore(box):
+    """Keep only what SGV uses (pitcher lines and runs): ~2 KB instead of ~180 KB per game."""
+    teams = {}
+    for side in ("home", "away"):
+        t = box["teams"][side]
+        players = {}
+        for pid in t["pitchers"]:
+            player = t["players"][f"ID{pid}"]
+            pitching = player.get("stats", {}).get("pitching", {})
+            players[f"ID{pid}"] = {
+                "person": {"id": pid, "fullName": player["person"]["fullName"]},
+                "stats": {"pitching": {k: pitching[k] for k in PITCHING_FIELDS if k in pitching}},
+            }
+        teams[side] = {
+            "team": {"id": t["team"]["id"]},
+            "teamStats": {"batting": {"runs": t["teamStats"]["batting"]["runs"]}},
+            "pitchers": t["pitchers"],
+            "players": players,
+        }
+    return {"teams": teams}
+
+
 def fetch_boxscore(game, refresh=False):
     """Box score for a finished game, read from the cache when possible."""
     path = CACHE_DIR / f"{game['gamePk']}.json"
     if path.exists() and not refresh:
-        return json.loads(path.read_text())
-    box = get_json(f"game/{game['gamePk']}/boxscore")
+        box = json.loads(path.read_text())
+        if "info" not in box:          # already slim
+            return box
+    else:
+        box = get_json(f"game/{game['gamePk']}/boxscore")
+    box = slim_boxscore(box)
     path.write_text(json.dumps(box))
     return box
 
@@ -262,27 +292,51 @@ def load_park_factors():
                     "home_team": row.get("home_team", ""),
                     "games": row.get("games", ""),
                     "park_factor": float(value) if value else None,
+                    "note": row.get("note") or "",
                 }
     return pf
 
 
+def carried_value(pf, season, venue):
+    """Most recent earlier season's park factor for the same ballpark, if any."""
+    earlier = [(s, e["park_factor"]) for (s, v), e in pf.items()
+               if v == venue and s < season and e["park_factor"] is not None]
+    return max(earlier) if earlier else (None, None)
+
+
 def update_park_factor_file(pf, season, starts):
-    """Add any new (season, venue) rows so the user knows what to fill in."""
+    """Add any new (season, venue) rows to park_factors.csv.
+
+    A ballpark already used in an earlier season gets that season's value,
+    flagged in the note column so it can be checked against FanGraphs; only a
+    brand-new ballpark is left blank for the user to fill in.
+    """
     usage = defaultdict(lambda: [set(), set()])
     for s in starts:
         usage[s["venue"]][0].add(s["home_team"])
         usage[s["venue"]][1].add(s["gamePk"])
+    carried = []
     for venue, (teams, game_ids) in usage.items():
-        entry = pf.setdefault((season, venue), {"park_factor": None})
+        entry = pf.setdefault((season, venue), {"park_factor": None, "note": ""})
         entry["home_team"] = "/".join(sorted(teams))
         entry["games"] = len(game_ids)
+        if entry["park_factor"] is None:
+            from_season, value = carried_value(pf, season, venue)
+            if value is not None:
+                entry["park_factor"] = value
+                entry["note"] = f"carried from {from_season} - check FanGraphs"
+                carried.append(venue)
+    if carried:
+        print(f"[{season}] park factors carried from the previous season for "
+              f"{len(carried)} ballparks (update them from FanGraphs when available)")
 
     with PARK_FACTORS_FILE.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["season", "venue", "home_team", "games", "park_factor"])
+        w.writerow(["season", "venue", "home_team", "games", "park_factor", "note"])
         for (s, venue), e in sorted(pf.items()):
             value = "" if e["park_factor"] is None else e["park_factor"]
-            w.writerow([s, venue, e.get("home_team", ""), e.get("games", ""), value])
+            w.writerow([s, venue, e.get("home_team", ""), e.get("games", ""), value,
+                        e.get("note", "")])
 
 
 # --------------------------------------------------------------------------
@@ -427,10 +481,10 @@ def main():
 
     open_report = not args.no_open
     while True:
-        run(args.seasons, args.nd_band, args.refresh_days, open_report)
+        ok = run(args.seasons, args.nd_band, args.refresh_days, open_report)
         open_report = False   # in --watch mode, open the browser only once
         if not args.watch:
-            break
+            sys.exit(0 if ok else 1)   # non-zero so a scheduled run shows as failed
         print(f"Next update in {args.watch} min (Ctrl+C to stop)")
         time.sleep(args.watch * 60)
 

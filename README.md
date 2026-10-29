@@ -6,6 +6,8 @@ A starter's win-loss record depends on things the starter doesn't control. Run s
 
 SGV asks a simpler question: **did this start give the team a realistic chance to win?** Each start gets an **SGV W**, **SGV L** or **SGV ND**, assuming a league-average offense, a league-average bullpen from the moment the starter leaves, and the run environment of that ballpark. At the end of the season every starter has an SGV record (for example 22-5, 5 ND) to compare with the real one.
 
+**Live leaderboard (updated daily during the season): https://luca-pfi.github.io/Advanced-Sabermetrics-Development-SGV/**
+
 ![SGV leaderboards](docs/leaderboards.png)
 
 ---
@@ -121,24 +123,51 @@ The *swing* is (SGV W − SGV L) − (real W − real L). Hover a row for the fu
 
 ### Live use during a season
 
-Box scores of finished games are saved in `cache/`, so later runs only download new games and take a few seconds. During a season the league averages are season-to-date. Include the previous season so the ND thresholds stay stable from opening day:
+Box scores of finished games are saved in `cache/` (about 2 KB per game), so later runs only download new games and take a few seconds. During a season the league averages are season-to-date. Include the previous seasons so the ND thresholds stay stable from opening day:
 
 ```bash
-python sgv.py --seasons 2026 2027 --watch 60
+python sgv.py --seasons 2025 2026 2027 --watch 60
 ```
+
+The simplest way to run it live is the daily GitHub workflow below; it needs no computer of your own.
+
+---
+
+## Live leaderboard (GitHub Actions + GitHub Pages)
+
+`.github/workflows/sgv-daily.yml` updates SGV automatically **every morning from March to October** at 08:47 UTC, after the previous night's games are final:
+
+1. scores every regular-season start from 2025 to the current season (`--seasons 2025 … current year`);
+2. commits the refreshed `sgv_records.xlsx`, `sgv_report.html` and `park_factors.csv`, but only when there were new games;
+3. publishes the leaderboards on GitHub Pages at **https://luca-pfi.github.io/Advanced-Sabermetrics-Development-SGV/**, with a download link for the Excel file at `…/sgv_records.xlsx`.
+
+The page shows "Updated through games of …" with the date of the last game included.
+
+### One-time setup
+
+1. In the repository on GitHub, open **Settings → Pages** and set **Source** to **GitHub Actions**.
+2. Open the **Actions** tab, choose **Daily SGV update** and click **Run workflow** to run it once by hand. The first run downloads every box score (a few minutes); after that each run takes about a minute.
+
+### Each season
+
+- **March, before opening day:** check `park_factors.csv`. New-season rows for known ballparks are filled in automatically with the previous season's value and marked `carried from … - check FanGraphs` in the `note` column. Update the values from FanGraphs when they're published and clear the note. A **brand-new ballpark** is left blank, and the run **fails** until you fill it in. GitHub emails you about the failed run, and the error lists the missing ballparks.
+- **Re-enable the schedule if needed:** GitHub pauses scheduled workflows in a repository with no activity for 60 days, which can happen over the off-season. If the Actions tab shows the workflow as disabled, click **Enable workflow**.
+- **During the season:** nothing to do. Official scoring changes from the last 3 days are picked up automatically.
 
 ### Park factors
 
 `park_factors.csv` has one row per season and ballpark:
 
 ```
-season,venue,home_team,games,park_factor
-2025,Coors Field,COL,81,1.12
+season,venue,home_team,games,park_factor,note
+2025,Coors Field,COL,81,1.12,
+2027,Coors Field,COL,81,1.12,carried from 2026 - check FanGraphs
 ```
 
 - Values come from the [FanGraphs Guts page](https://www.fangraphs.com/guts.aspx?type=pf) ("Basic (5yr)" column, divided by 100).
 - Neutral sites (Tokyo Dome, Mexico City, Field of Dreams, etc.) aren't covered by FanGraphs and are set to 1.00. Change them if you have better values.
-- When a new season or ballpark shows up, the script adds an empty row and tells you which values to fill in before it continues.
+- When a new season starts, each ballpark already used in an earlier season gets that season's value automatically, with `carried from <season> - check FanGraphs` in the `note` column. Update the value when FanGraphs publishes the new season and clear the note.
+- A brand-new ballpark is added as an empty row; the script lists it and stops until you fill it in.
 - Editing the file in Excel works, including European formats (`;` separators and decimal commas).
 
 ### Tests
@@ -147,7 +176,7 @@ season,venue,home_team,games,park_factor
 python test_sgv.py
 ```
 
-The tests run the whole pipeline offline on a small simulated season, without contacting the API. They check the formula against hand calculations, extra-inning starts, openers, postponed and suspended games, neutral sites, the curve fit and its ND thresholds, and that GS = W + L + ND for every pitcher.
+The tests run the whole pipeline offline on a small simulated season, without contacting the API. They check the formula against hand calculations, extra-inning starts, openers, postponed and suspended games, neutral sites, the curve fit and its ND thresholds, park factors carried to a new season, the trimmed box-score cache, and that GS = W + L + ND for every pitcher.
 
 ---
 
@@ -165,4 +194,5 @@ The tests run the whole pipeline offline on a small simulated season, without co
 | `sgv_report.py` | HTML leaderboards |
 | `park_factors.csv` | Park factors per season and ballpark |
 | `test_sgv.py` | Offline tests |
-| `sgv_records.xlsx`, `sgv_report.html` | Results for 2025 and 2026 |
+| `.github/workflows/sgv-daily.yml` | Daily update and GitHub Pages publication |
+| `sgv_records.xlsx`, `sgv_report.html` | Latest results (updated daily during the season) |

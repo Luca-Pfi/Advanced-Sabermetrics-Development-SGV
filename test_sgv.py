@@ -76,9 +76,15 @@ print(sgv.PARK_FACTORS_FILE.read_text())
 
 pf = {"Coors Field": "1.10", "Petco Park": "0,95", "Dodger Stadium": "0.95",
       "Wrigley Field": "1.00", "Tokyo Dome": "1.00"}
-lines = sgv.PARK_FACTORS_FILE.read_text().splitlines()
-out = [lines[0].replace(",", ";")] + [(l + pf[l.split(",")[1]].replace(".", ",")).replace(",", ";", 4) for l in lines[1:]]
-sgv.PARK_FACTORS_FILE.write_text("\n".join(out) + "\n")
+# save as a French-locale Excel would: ";" separators and decimal commas
+import csv
+rows = list(csv.DictReader(sgv.PARK_FACTORS_FILE.open()))
+with sgv.PARK_FACTORS_FILE.open("w", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=rows[0].keys(), delimiter=";")
+    w.writeheader()
+    for r in rows:
+        r["park_factor"] = pf[r["venue"]].replace(".", ",")
+        w.writerow(r)
 
 assert sgv.run([2025, 2026], 0.40, 3) is True
 pd.set_option("display.width", 250); pd.set_option("display.max_columns", 30)
@@ -115,5 +121,27 @@ assert sgv.sgv_decision(w_cut - 0.01, w_cut, l_cut) == "W"
 assert sgv.sgv_decision(l_cut + 0.01, w_cut, l_cut) == "L"
 assert sgv.sgv_decision((w_cut + l_cut) / 2, w_cut, l_cut) == "ND"
 assert "SGV Leaderboards" in sgv.REPORT_FILE.read_text()
+# slim cache: trimming a box score keeps everything SGV needs
+full = fake_get_json("game/1/boxscore")
+full["info"] = ["lots", "of", "unused", "data"]
+full["teams"]["home"]["players"]["ID10"]["stats"]["pitching"]["strikeOuts"] = 9
+full["teams"]["home"]["players"]["ID10"]["stats"]["batting"] = {"hits": 1}
+slim = sgv.slim_boxscore(full)
+assert "info" not in slim
+assert slim["teams"]["home"]["players"]["ID10"]["stats"] == {"pitching": {
+    "inningsPitched": "7.0", "earnedRuns": 4, "runs": 4, "gamesStarted": 1, "wins": 1, "losses": 0}}
+assert sgv.side_lines(slim["teams"]["home"]) == sgv.side_lines(full["teams"]["home"])
+
+# park factors carry forward to a new season for known ballparks only
+pf = sgv.load_park_factors()
+new_season = [{"venue": "Coors Field", "home_team": "COL", "gamePk": 99},
+              {"venue": "Brand New Park", "home_team": "TB", "gamePk": 98}]
+sgv.update_park_factor_file(pf, 2027, new_season)
+pf = sgv.load_park_factors()
+assert pf[(2027, "Coors Field")]["park_factor"] == 1.10
+assert pf[(2027, "Coors Field")]["note"] == "carried from 2025 - check FanGraphs"
+assert pf[(2027, "Brand New Park")]["park_factor"] is None
+assert pf[(2025, "Coors Field")]["note"] == ""
+
 shutil.rmtree(tmp)
 print("ALL CHECKS PASSED")

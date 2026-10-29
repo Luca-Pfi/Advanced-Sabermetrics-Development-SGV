@@ -1,0 +1,77 @@
+# Daily SGV update: scores every finished regular-season start, commits the
+# refreshed results and publishes the leaderboards on GitHub Pages.
+name: Daily SGV update
+
+on:
+  schedule:
+    # 08:47 UTC every day from March to October, after the previous night's games are final.
+    - cron: "47 8 * 3-10 *"
+  workflow_dispatch:   # "Run workflow" button in the Actions tab
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: sgv-daily
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # Box scores of finished games are kept between runs, so a daily run only
+      # downloads the previous day's games.
+      - name: Restore box-score cache
+        uses: actions/cache@v6
+        with:
+          path: cache
+          key: boxscores-${{ github.run_id }}
+          restore-keys: boxscores-
+
+      - name: Compute SGV (2025 to current season)
+        run: python sgv.py --no-open --seasons $(seq 2025 "$(date -u +%Y)")
+
+      # The Excel file changes on every save (timestamps), so commit only when the
+      # leaderboards or park factors actually changed.
+      - name: Commit updated results
+        run: |
+          if git diff --quiet -- sgv_report.html park_factors.csv; then
+            echo "No new games since the last update."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add sgv_records.xlsx sgv_report.html park_factors.csv
+          git commit -m "SGV update $(date -u +%Y-%m-%d)"
+          git push
+
+      - name: Prepare the leaderboards page
+        run: |
+          mkdir -p _site
+          cp sgv_report.html _site/index.html
+          cp sgv_records.xlsx _site/
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    needs: update
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
