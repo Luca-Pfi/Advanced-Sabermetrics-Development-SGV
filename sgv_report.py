@@ -98,7 +98,10 @@ body { margin: 0; background: var(--surface-0); color: var(--text-primary);
 main { max-width: 860px; margin: 0 auto; padding: 28px 16px 48px; }
 h1 { font-size: 26px; margin: 0 0 2px; letter-spacing: -0.01em; }
 #through { margin: 0 0 10px; }
-.lede { color: var(--text-secondary); margin: 0 0 20px; max-width: 64ch; }
+.lede { color: var(--text-secondary); margin: 0 0 12px; max-width: 64ch; }
+.formula { margin: 0 0 20px; padding: 10px 14px; background: var(--surface-1); border: 1px solid var(--border);
+           border-radius: 8px; font: 13.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+           color: var(--text-primary); overflow-wrap: break-word; }
 .controls { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .seg button { border: 0; background: var(--surface-1); color: var(--text-secondary);
@@ -148,6 +151,7 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
   <p class="lede">Starter Game Value credits each start as an SGV win, loss or no-decision based on the
   pitching alone. It assumes a league-average offense and bullpen and adjusts for the ballpark.
   A start is an SGV ND when it left the team a <span id="band"></span> chance to win.</p>
+  <p class="formula" aria-label="SGV formula">SGV = (ER + Bullpen RA9 × (9 − IP) / 9) − (Runs per team game × Park factor)</p>
   <div class="controls">
     <div class="seg" id="seasons" role="group" aria-label="Season"></div>
     <span class="note" id="qual"></span>
