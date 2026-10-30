@@ -121,7 +121,14 @@ assert abs(sgv.win_probability(w_cut, coef) - 0.60) < 1e-9 and w_cut < l_cut
 assert sgv.sgv_decision(w_cut - 0.01, w_cut, l_cut) == "W"
 assert sgv.sgv_decision(l_cut + 0.01, w_cut, l_cut) == "L"
 assert sgv.sgv_decision((w_cut + l_cut) / 2, w_cut, l_cut) == "ND"
-assert "SGV Leaderboards" in sgv.REPORT_FILE.read_text()
+report = sgv.REPORT_FILE.read_text()
+assert "SGV Leaderboards" in report and 'id="lookup"' in report
+# the lookup carries every starter of each season, qualified or not, with one entry per start
+import json, re
+data = json.loads(re.search(r"const DATA = (.*);\n", report).group(1))
+lookup = {d["season"]: {p["n"]: p for p in d["players"]} for d in data}
+assert set(lookup[2025]) == {"Rocky Starter", "Pad Ace", "Dodger Bulk", "Cub Ace"}
+assert len(lookup[2025]["Rocky Starter"]["g"]) == 2 and lookup[2025]["Rocky Starter"]["outs"] == 36
 # slim cache: trimming a box score keeps everything SGV needs
 full = fake_get_json("game/1/boxscore")
 full["info"] = ["lots", "of", "unused", "data"]

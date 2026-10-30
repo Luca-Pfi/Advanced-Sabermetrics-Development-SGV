@@ -7,6 +7,9 @@ Three boards per season, for qualified starters:
   * Fortunate Starters    - SGV record most WORSE than the real W-L record
 
 "Swing" = (SGV W - SGV L) - (Actual W - Actual L), in net wins.
+
+Below the boards, a pitcher lookup searches every starter of the selected
+season and shows the SGV season line, a per-start SGV chart and the game log.
 """
 
 import json
@@ -46,6 +49,31 @@ def season_boards(df, season, team_games):
             "best": best, "hardLuck": hard_luck, "fortunate": fortunate}
 
 
+def season_pitchers(df, season, qualifier):
+    """Every starter of a season, compact, for the pitcher lookup."""
+    s = df[df["season"] == season].sort_values("date")
+    players = []
+    for pid, p in s.groupby("pitcher_id"):
+        sw, sl, snd = (int((p["SGV_dec"] == d).sum()) for d in ("W", "L", "ND"))
+        aw, al, and_ = (int((p["actual_dec"] == d).sum()) for d in ("W", "L", "ND"))
+        outs = [int(round(ip * 3)) for ip in p["IP"]]
+        players.append({
+            "id": int(pid), "n": p["pitcher"].iloc[-1], "t": "/".join(dict.fromkeys(p["team"])),
+            "s": [sw, sl, snd], "a": [aw, al, and_],
+            "outs": sum(outs), "er": int(p["ER"].sum()), "avg": round(float(p["SGV"].mean()), 2),
+            "q": len(p) >= qualifier,
+            # one start: date, opponent, H/A, outs, ER, SGV, SGV decision, real decision, team result
+            "g": [[r.date[5:], r.opponent, r.home_away, o, int(r.ER), round(float(r.SGV), 2),
+                   r.SGV_dec, r.actual_dec, r.team_result]
+                  for r, o in zip(p.itertuples(), outs)],
+        })
+    # SGV rank among qualified starters, same order as the Best SGV Records board
+    ranked = sorted((x for x in players if x["q"]), key=lambda x: (-(x["s"][0] - x["s"][1]), x["avg"]))
+    for i, x in enumerate(ranked, 1):
+        x["rank"] = i
+    return sorted(players, key=lambda x: x["n"])
+
+
 def write_report(df, league_rows, thresholds, path):
     league = {r["season"]: r for r in league_rows}
     seasons = sorted(df["season"].unique())
@@ -58,10 +86,12 @@ def write_report(df, league_rows, thresholds, path):
             "band": f"{t['nd_band']:.0%} - {1 - t['nd_band']:.0%}",
             "calibratedOn": t["calibrated_on"],
             "currentWeight": league[s]["current_weight"],
+            "players": season_pitchers(df, int(s), board["qualifier"]),
         })
         data.append(board)
     meta = {"through": str(df["date"].max())}   # last game in the data, not the run time
-    page = TEMPLATE.replace("__DATA__", json.dumps(data)).replace("__META__", json.dumps(meta))
+    page = TEMPLATE.replace("__DATA__", json.dumps(data, ensure_ascii=False, separators=(",", ":")))
+    page = page.replace("__META__", json.dumps(meta))
     path.write_text(page, encoding="utf-8")
 
 
@@ -142,6 +172,32 @@ th { color: var(--text-secondary); font-weight: 600; }
 #tip b { display: block; margin-bottom: 2px; }
 #tip .k { color: var(--text-secondary); }
 footer { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
+.search { position: relative; max-width: 420px; margin: 4px 0 6px; }
+.search input { width: 100%; padding: 9px 12px; font: inherit; color: var(--text-primary);
+                background: var(--surface-0); border: 1px solid var(--border); border-radius: 8px; }
+.search input:focus { outline: 2px solid var(--win); outline-offset: 1px; }
+.search ul { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px;
+             list-style: none; background: var(--surface-1); border: 1px solid var(--border);
+             border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.12); max-height: 280px; overflow-y: auto; }
+.search li { padding: 6px 8px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between;
+             gap: 12px; }
+.search li span { color: var(--text-muted); font-size: 12.5px; }
+.search li[aria-selected="true"], .search li:hover { background: var(--grid); }
+.player-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 14px 0 10px; }
+.player-head h3 { margin: 0; font-size: 18px; }
+.player-head span { color: var(--text-secondary); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.stat { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.stat .k { color: var(--text-secondary); font-size: 12px; }
+.stat .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat .v small { display: block; font-size: 12px; font-weight: 400; color: var(--text-secondary); }
+.dec { display: inline-block; min-width: 26px; padding: 0 5px; border-radius: 4px; text-align: center;
+       font-size: 11.5px; font-weight: 600; color: #fff; }
+.dec-W { background: var(--win); } .dec-L { background: var(--loss); }
+.dec-ND { background: var(--nd); color: var(--text-primary); }
+.empty { color: var(--text-secondary); margin: 12px 0 4px; }
+.linkish { border: 0; background: none; padding: 0; font: inherit; color: var(--win); cursor: pointer;
+           text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -157,6 +213,17 @@ footer { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
     <span class="note" id="qual"></span>
   </div>
   <div id="boards"></div>
+  <section class="card" id="lookup">
+    <h2 id="lookup-title">Pitcher lookup</h2>
+    <p class="sub">Search any starter to see their SGV record and every start of the selected season.</p>
+    <div class="search">
+      <input id="search" type="search" placeholder="Search a pitcher, e.g. Skenes" autocomplete="off"
+             role="combobox" aria-expanded="false" aria-controls="matches" aria-autocomplete="list"
+             aria-label="Search a pitcher">
+      <ul id="matches" role="listbox" hidden></ul>
+    </div>
+    <div id="player"></div>
+  </section>
   <footer id="foot"></footer>
 </main>
 <div id="tip" role="tooltip"></div>
@@ -342,6 +409,7 @@ function render(season) {
          "Real record is better than their pitching earned: the offense or bullpen bailed them out.",
          swLegend("var(--loss)"), swingChart(d.fortunate, lo, hi, "var(--loss)"), d.fortunate),
   );
+  renderLookup();
   try { localStorage.setItem("sgv-season", season); } catch (e) {}
 }
 
@@ -356,12 +424,138 @@ document.getElementById("through").textContent = "Updated through games of " +
   new Date(META.through + "T12:00:00").toLocaleDateString("en-US",
     { month: "long", day: "numeric", year: "numeric" });
 let current, start = DATA[DATA.length - 1].season;
+let selected = null;   // pitcher id shown in the lookup
+const norm = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const ipText = (outs) => `${Math.floor(outs / 3)}.${outs % 3}`;
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const seasonData = () => DATA.find((x) => x.season === current);
+const searchBox = document.getElementById("search");
+const matchList = document.getElementById("matches");
+let matches = [], active = -1;
+
+function showMatches() {
+  const q = norm(searchBox.value.trim());
+  matches = q ? seasonData().players.filter((p) => norm(p.n).includes(q))
+    .sort((a, b) => norm(a.n).indexOf(q) - norm(b.n).indexOf(q) || b.g.length - a.g.length).slice(0, 8) : [];
+  active = matches.length ? 0 : -1;
+  matchList.innerHTML = matches.length
+    ? matches.map((p, i) => `<li role="option" id="m${i}" aria-selected="${i === active}" data-i="${i}">` +
+        `${esc(p.n)}<span>${esc(p.t)} · ${p.g.length} GS</span></li>`).join("")
+    : (q ? `<li aria-disabled="true">No starter matching “${esc(searchBox.value.trim())}” in ${current}</li>` : "");
+  matchList.hidden = !q;
+  searchBox.setAttribute("aria-expanded", String(!!q));
+}
+function choose(p) {
+  selected = p.id;
+  searchBox.value = p.n;
+  matchList.hidden = true;
+  searchBox.setAttribute("aria-expanded", "false");
+  history.replaceState(null, "", `#pitcher=${encodeURIComponent(p.n)}&season=${current}`);
+  renderLookup();
+}
+searchBox.addEventListener("input", showMatches);
+searchBox.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (!matches.length) return;
+    e.preventDefault();
+    active = (active + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length;
+    matchList.querySelectorAll("li").forEach((li, i) => li.setAttribute("aria-selected", String(i === active)));
+  } else if (e.key === "Enter" && active >= 0) {
+    e.preventDefault(); choose(matches[active]);
+  } else if (e.key === "Escape") {
+    matchList.hidden = true;
+  }
+});
+matchList.addEventListener("mousedown", (e) => {
+  const li = e.target.closest("li[data-i]");
+  if (li) { e.preventDefault(); choose(matches[+li.dataset.i]); }
+});
+searchBox.addEventListener("blur", () => { matchList.hidden = true; });
+
+// SGV of every start; negative (good) drawn upward, dashed lines at the season's W and L cut-offs.
+function startChart(p, d) {
+  const w = W, h = 146, x0 = 34, y0 = 10, plotH = 130;
+  const vals = p.g.map((g) => g[5]);
+  const top = Math.min(-3, Math.floor(Math.min(...vals, d.wCut))), bot = Math.max(3, Math.ceil(Math.max(...vals, d.lCut)));
+  const sy = (v) => y0 + (v - top) / (bot - top) * plotH;
+  const band = (w - x0 - 4) / p.g.length, bw = Math.max(2, Math.min(18, band - 2));
+  const svg = el("svg", { viewBox: `0 0 ${w} ${h}`, role: "img", "aria-label": `SGV of each ${p.n} start in ${d.season}` });
+  for (let v = top; v <= bot; v++) {
+    if (v % 2) continue;
+    svg.append(el("line", { x1: x0, x2: w, y1: sy(v), y2: sy(v), stroke: v === 0 ? "var(--text-muted)" : "var(--grid)" }));
+    svg.append(el("text", { x: x0 - 6, y: sy(v) + 4, class: "axis", "text-anchor": "end" }, v === 0 ? "0" : signed(v)));
+  }
+  [[d.wCut, "W"], [d.lCut, "L"]].forEach(([v, k]) => {
+    svg.append(el("line", { x1: x0, x2: w, y1: sy(v), y2: sy(v), stroke: k === "W" ? "var(--win)" : "var(--loss)",
+                            "stroke-dasharray": "4 4", opacity: 0.8 }));
+  });
+  p.g.forEach((g, i) => {
+    const [date, opp, ha, outs, er, sgv, dec, act] = g;
+    const x = x0 + i * band + (band - bw) / 2, ya = sy(0), yb = sy(sgv);
+    const r = el("rect", { x, y: Math.min(ya, yb), width: bw, height: Math.max(1, Math.abs(yb - ya)), rx: 2,
+      fill: dec === "W" ? "var(--win)" : dec === "L" ? "var(--loss)" : "var(--nd)" });
+    r.append(el("title", {}, `${date} ${ha === "H" ? "vs" : "@"} ${opp}: ${ipText(outs)} IP, ${er} ER, ` +
+      `SGV ${sgv.toFixed(2)} (SGV ${dec}, real ${act})`));
+    svg.append(r);
+  });
+  return svg;
+}
+
+function renderLookup() {
+  const d = seasonData(), box = document.getElementById("player");
+  document.getElementById("lookup-title").textContent = `Pitcher lookup — ${current}`;
+  if (selected === null) { box.replaceChildren(); return; }
+  const p = d.players.find((x) => x.id === selected);
+  if (!p) {
+    const other = DATA.filter((x) => x.season !== current && x.players.some((y) => y.id === selected));
+    const name = DATA.flatMap((x) => x.players).find((y) => y.id === selected).n;
+    box.innerHTML = `<p class="empty">${esc(name)} made no starts in ${current}.` +
+      other.map((x) => ` <button class="linkish" data-season="${x.season}">See ${x.season}</button>`).join("") + "</p>";
+    box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => render(+b.dataset.season)));
+    return;
+  }
+  const net = p.s[0] - p.s[1], swing = net - (p.a[0] - p.a[1]);
+  const era = p.outs ? (27 * p.er / p.outs).toFixed(2) : "–";
+  const stat = (k, v, small = "") => `<div class="stat"><div class="k">${k}</div><div class="v">${v}` +
+    (small ? ` <small>${small}</small>` : "") + "</div></div>";
+  box.innerHTML = `<div class="player-head"><h3>${esc(p.n)}</h3><span>${esc(p.t)} · ${current}</span></div>
+    <div class="stats">
+      ${stat("SGV record", `${p.s[0]}-${p.s[1]}`, `${p.s[2]} ND`)}
+      ${stat("Real record", `${p.a[0]}-${p.a[1]}`, `${p.a[2]} ND`)}
+      ${stat("Swing", signed(swing), "net wins")}
+      ${stat("Avg SGV", p.avg.toFixed(2))}
+      ${stat("GS · IP", `${p.g.length}`, `${ipText(p.outs)} IP`)}
+      ${stat("ERA", era, `${p.er} ER`)}
+      ${stat("SGV rank", p.rank ? `#${p.rank}` : "–", p.rank ? `of ${d.qualified}` : `not qualified (${d.qualifier} GS)`)}
+    </div>`;
+  box.append(startChart(p, d));
+  box.insertAdjacentHTML("beforeend", `<p class="note">SGV of each start, in order. Bars above 0 were ` +
+    `better than average; dashed lines are the SGV W (${d.wCut}) and SGV L (${d.lCut}) cut-offs. ` +
+    `Hover a bar for the line.</p>`);
+  const det = document.createElement("details");
+  det.innerHTML = `<summary>Game log (${p.g.length} starts)</summary><div class="table-wrap"><table><thead><tr>
+    <th>Date</th><th>Opp</th><th>IP</th><th>ER</th><th>SGV</th><th>SGV dec</th><th>Real dec</th><th>Team</th>
+    </tr></thead><tbody>${p.g.map(([date, opp, ha, outs, er, sgv, dec, act, res]) => `<tr><td>${date}</td>
+    <td>${ha === "H" ? "vs" : "@"} ${esc(opp)}</td><td>${ipText(outs)}</td><td>${er}</td><td>${sgv.toFixed(2)}</td>
+    <td><span class="dec dec-${dec}">${dec}</span></td><td>${act}</td><td>${res}</td></tr>`).join("")}
+    </tbody></table></div>`;
+  box.append(det);
+}
 let resizeTimer;
 addEventListener("resize", () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => render(current), 120);
 });
 try { const s = +localStorage.getItem("sgv-season"); if (DATA.some((d) => d.season === s)) start = s; } catch (e) {}
+// A shared lookup link: #pitcher=<name>&season=<year>
+const hash = new URLSearchParams(location.hash.slice(1));
+if (hash.get("season") && DATA.some((d) => d.season === +hash.get("season"))) start = +hash.get("season");
+if (hash.get("pitcher")) {
+  const want = norm(hash.get("pitcher"));
+  const hit = (DATA.find((d) => d.season === start) || DATA.at(-1)).players.find((p) => norm(p.n) === want)
+    || DATA.flatMap((d) => d.players).find((p) => norm(p.n) === want);
+  if (hit) { selected = hit.id; searchBox.value = hit.n; }
+}
 render(start);
 </script>
 </body>

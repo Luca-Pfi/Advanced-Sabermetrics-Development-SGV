@@ -115,6 +115,13 @@ This scores the 2025 and 2026 regular seasons and then:
 
 The *swing* is (SGV W − SGV L) − (real W − real L). Hover a row for the full line, or open "Show as table".
 
+Below the boards, the **pitcher lookup** searches every starter of the selected season, qualified or not (accents optional: "sanchez" finds Sánchez). It shows:
+- the SGV and real records, swing, average SGV, GS, IP, ERA and SGV rank;
+- a chart of the SGV of every start;
+- the full game log.
+
+A lookup can be shared as a link, e.g. `…/Advanced-Sabermetrics-Development-SGV/#pitcher=Paul%20Skenes&season=2025`.
+
 ### Options
 
 | Option | Effect |
