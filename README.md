@@ -107,18 +107,20 @@ This scores the 2025 and 2026 regular seasons and then:
 | **Starts** | Every start: date, teams, ballpark, park factor, IP, ER, SGV, win probability, SGV decision, actual decision and team result |
 | **Model** | One row per season: games, the weight of the current season, league averages (season-to-date and used), ND thresholds and the seasons they were calibrated on, and SGV W/L/ND totals |
 
-**`sgv_report.html`** is the leaderboards page. Its header shows a season scoreboard: SGV W/L/ND totals, the season's thresholds and the league averages. Below it are three tables for qualified starters (at least 1 GS per 8 team games, which is 20 GS over a full season):
+**`sgv_report.html`** is the leaderboards page, styled after Baseball Savant: teal-bordered panels, condensed type and Savant's percentile colour scale. In that scale red means great and blue means poor, so SGV W is red, SGV L blue and ND grey-teal. It follows the system light or dark mode.
 
-- **SGV Leaders:** most SGV wins over SGV losses, with a W · ND · L bar per pitcher. It shows the top 10 and expands to every qualified starter; click a column header to sort.
+- **League:** the season's SGV W/L/ND totals and split, thresholds and league averages.
+- **SGV Leaders:** qualified starters (at least 1 GS per 8 team games, which is 20 GS over a full season) ranked by SGV wins minus SGV losses. It shows a W · ND · L bar per pitcher and an Avg SGV badge coloured by percentile. It lists the top 10, expands to every qualified starter, and sorts by any column.
 - **Hard Luck:** SGV record much better than the real one; the offense or bullpen let them down.
 - **Fortunate:** real record better than their pitching earned; they got bailed out.
 
-The *swing* is (SGV W − SGV L) − (real W − real L). Click a pitcher's name in any table to open them in the player search.
+The *swing* is (SGV W − SGV L) − (real W − real L). Click a pitcher's name in any table to open their player page.
 
-At the bottom, the **player search** covers every starter of the selected season, qualified or not (accents optional: "sanchez" finds Sánchez). It shows:
-- the SGV and real records, swing, average SGV, GS, IP, ERA and SGV rank;
-- a chart of the SGV of every start;
-- the full game log.
+The **player search** covers every starter of the selected season, qualified or not (accents optional: "sanchez" finds Sánchez). It shows the season's SGV leader until you search. Each player page has:
+- a **profile card** with a season-by-season table (GS, IP, ERA, SGV and real records, swing, average SGV) and a totals row;
+- **SGV percentile rankings** among qualified starters: Avg SGV, SGV Win %, SGV Loss %, SGV W − L, ERA, IP per start, Quality Start % (6+ IP, 3 or fewer ER) and Short Start % (under 5 IP);
+- a **5-start rolling SGV** chart with the league average and the W/L cut-offs, plus a strip of each start's SGV decision;
+- the full **game log**.
 
 A lookup can be shared as a link, e.g. `…/Advanced-Sabermetrics-Development-SGV/#pitcher=Paul%20Skenes&season=2025`.
 
