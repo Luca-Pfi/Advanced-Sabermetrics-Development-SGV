@@ -107,15 +107,15 @@ This scores the 2025 and 2026 regular seasons and then:
 | **Starts** | Every start: date, teams, ballpark, park factor, IP, ER, SGV, win probability, SGV decision, actual decision and team result |
 | **Model** | One row per season: games, the weight of the current season, league averages (season-to-date and used), ND thresholds and the seasons they were calibrated on, and SGV W/L/ND totals |
 
-**`sgv_report.html`** has three leaderboards per season, for qualified starters (at least 1 GS per 8 team games, which is 20 GS over a full season):
+**`sgv_report.html`** is the leaderboards page. Its header shows a season scoreboard: SGV W/L/ND totals, the season's thresholds and the league averages. Below it are three tables for qualified starters (at least 1 GS per 8 team games, which is 20 GS over a full season):
 
-- **Best SGV Records:** most SGV wins over SGV losses.
-- **Hard-Luck Starters:** SGV record much better than the real one; the offense or bullpen let them down.
-- **Fortunate Starters:** real record better than their pitching earned; they got bailed out.
+- **SGV Leaders:** most SGV wins over SGV losses, with a W · ND · L bar per pitcher. It shows the top 10 and expands to every qualified starter; click a column header to sort.
+- **Hard Luck:** SGV record much better than the real one; the offense or bullpen let them down.
+- **Fortunate:** real record better than their pitching earned; they got bailed out.
 
-The *swing* is (SGV W − SGV L) − (real W − real L). Hover a row for the full line, or open "Show as table".
+The *swing* is (SGV W − SGV L) − (real W − real L). Click a pitcher's name in any table to open them in the player search.
 
-Below the boards, the **pitcher lookup** searches every starter of the selected season, qualified or not (accents optional: "sanchez" finds Sánchez). It shows:
+At the bottom, the **player search** covers every starter of the selected season, qualified or not (accents optional: "sanchez" finds Sánchez). It shows:
 - the SGV and real records, swing, average SGV, GS, IP, ERA and SGV rank;
 - a chart of the SGV of every start;
 - the full game log.

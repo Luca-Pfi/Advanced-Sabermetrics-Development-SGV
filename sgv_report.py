@@ -1,15 +1,15 @@
 """
 HTML leaderboards for SGV records (self-contained, no extra libraries).
 
-Three boards per season, for qualified starters:
-  * Best SGV Records      - ranked by SGV W minus SGV L
-  * Hard-Luck Starters    - SGV record most BETTER than the real W-L record
-  * Fortunate Starters    - SGV record most WORSE than the real W-L record
+Per season, for qualified starters:
+  * SGV Leaders           - ranked by SGV W minus SGV L (top 10, expandable, sortable)
+  * Hard Luck             - SGV record most BETTER than the real W-L record
+  * Fortunate             - SGV record most WORSE than the real W-L record
 
 "Swing" = (SGV W - SGV L) - (Actual W - Actual L), in net wins.
 
-Below the boards, a pitcher lookup searches every starter of the selected
-season and shows the SGV season line, a per-start SGV chart and the game log.
+Below the boards, a player search covers every starter of the selected season
+and shows the SGV season line, a per-start SGV chart and the game log.
 """
 
 import json
@@ -40,17 +40,19 @@ def season_boards(df, season, team_games):
             "avg": round(float(p["SGV"].mean()), 2),
             "swing": int((sw - sl) - (aw - al)),
         })
-    best = sorted(rows, key=lambda r: (-(r["sgv"][0] - r["sgv"][1]), r["avg"]))[:TOP_N]
+    ranked = sorted(rows, key=lambda r: (-(r["sgv"][0] - r["sgv"][1]), r["avg"]))
+    for i, r in enumerate(ranked, 1):
+        r["rank"] = i
     hard_luck = sorted([r for r in rows if r["swing"] > 0],
                        key=lambda r: (-r["swing"], r["avg"]))[:TOP_N]
     fortunate = sorted([r for r in rows if r["swing"] < 0],
                        key=lambda r: (r["swing"], -r["avg"]))[:TOP_N]
     return {"season": season, "qualifier": qualifier, "qualified": len(rows),
-            "best": best, "hardLuck": hard_luck, "fortunate": fortunate}
+            "all": ranked, "hardLuck": hard_luck, "fortunate": fortunate}
 
 
 def season_pitchers(df, season, qualifier):
-    """Every starter of a season, compact, for the pitcher lookup."""
+    """Every starter of a season, compact, for the player search."""
     s = df[df["season"] == season].sort_values("date")
     players = []
     for pid, p in s.groupby("pitcher_id"):
@@ -67,7 +69,7 @@ def season_pitchers(df, season, qualifier):
                    r.SGV_dec, r.actual_dec, r.team_result]
                   for r, o in zip(p.itertuples(), outs)],
         })
-    # SGV rank among qualified starters, same order as the Best SGV Records board
+    # SGV rank among qualified starters, same order as the SGV Leaders board
     ranked = sorted((x for x in players if x["q"]), key=lambda x: (-(x["s"][0] - x["s"][1]), x["avg"]))
     for i, x in enumerate(ranked, 1):
         x["rank"] = i
@@ -81,11 +83,16 @@ def write_report(df, league_rows, thresholds, path):
     for s in seasons:
         board = season_boards(df, int(s), league[s]["team_games"])
         t = thresholds[s]
+        starts = df[df["season"] == s]
         board.update({
             "wCut": round(t["sgv_w_below"], 2), "lCut": round(t["sgv_l_above"], 2),
-            "band": f"{t['nd_band']:.0%} - {1 - t['nd_band']:.0%}",
+            "band": f"{t['nd_band']:.0%}–{1 - t['nd_band']:.0%}",
             "calibratedOn": t["calibrated_on"],
             "currentWeight": league[s]["current_weight"],
+            "ra9": round(league[s]["bullpen_ra9"], 2),
+            "rpg": round(league[s]["runs_per_team_game"], 2),
+            "totals": {"starts": len(starts),
+                       **{d: int((starts["SGV_dec"] == d).sum()) for d in ("W", "L", "ND")}},
             "players": season_pitchers(df, int(s), board["qualifier"]),
         })
         data.append(board)
@@ -101,338 +108,422 @@ TEMPLATE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SGV Leaderboards</title>
+<meta name="description" content="Starter Game Value: a win, loss or no-decision for every MLB start, earned by the pitching alone.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 :root {
   color-scheme: light;
-  --surface-0: #f6f5f2; --surface-1: #fcfcfb; --border: #e4e2dc; --grid: #ebe9e4;
-  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
-  --win: #2a78d6; --nd: #b4b2a9; --loss: #e34948; --actual: #7a7974;
+  --navy: #041e42; --navy-2: #0c2c56; --red: #bf0d3e;
+  --bg: #f2f3f5; --surface: #ffffff; --line: #d9dde3; --line-soft: #eceef1; --zebra: #f7f8fa;
+  --ink: #0b1320; --ink-2: #47505e; --ink-3: #6f7886;
+  --win: #1d63c9; --nd: #a3abb8; --loss: #c8102e;
+  --win-tint: #e3edfa; --loss-tint: #fbe5e9;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
-    --surface-0: #121211; --surface-1: #1a1a19; --border: #2e2e2c; --grid: #262624;
-    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e88;
-    --win: #3987e5; --nd: #55544f; --loss: #e66767; --actual: #8f8e88;
+    --navy: #031631; --navy-2: #0a2346; --red: #e0294f;
+    --bg: #07111f; --surface: #0e1a2e; --line: #23324a; --line-soft: #18263d; --zebra: #111f35;
+    --ink: #f1f4f8; --ink-2: #b6c0ce; --ink-3: #8592a6;
+    --win: #4a8fe8; --nd: #46526a; --loss: #e5546e;
+    --win-tint: #15305a; --loss-tint: #47192a;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --surface-0: #121211; --surface-1: #1a1a19; --border: #2e2e2c; --grid: #262624;
-  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e88;
-  --win: #3987e5; --nd: #55544f; --loss: #e66767; --actual: #8f8e88;
+  --navy: #031631; --navy-2: #0a2346; --red: #e0294f;
+  --bg: #07111f; --surface: #0e1a2e; --line: #23324a; --line-soft: #18263d; --zebra: #111f35;
+  --ink: #f1f4f8; --ink-2: #b6c0ce; --ink-3: #8592a6;
+  --win: #4a8fe8; --nd: #46526a; --loss: #e5546e;
+  --win-tint: #15305a; --loss-tint: #47192a;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--surface-0); color: var(--text-primary);
-       font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-main { max-width: 860px; margin: 0 auto; padding: 28px 16px 48px; }
-h1 { font-size: 26px; margin: 0 0 2px; letter-spacing: -0.01em; }
-#through { margin: 0 0 10px; }
-.lede { color: var(--text-secondary); margin: 0 0 12px; max-width: 64ch; }
-.formula { margin: 0 0 20px; padding: 10px 14px; background: var(--surface-1); border: 1px solid var(--border);
-           border-radius: 8px; font: 13.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-           color: var(--text-primary); overflow-wrap: break-word; }
-.controls { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
-.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.seg button { border: 0; background: var(--surface-1); color: var(--text-secondary);
-              padding: 6px 14px; font: inherit; cursor: pointer; }
-.seg button + button { border-left: 1px solid var(--border); }
-.seg button[aria-pressed="true"] { background: var(--text-primary); color: var(--surface-1); }
-.note { color: var(--text-muted); font-size: 12.5px; }
-section.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
-               padding: 18px 18px 12px; margin-bottom: 18px; }
-.card h2 { font-size: 17px; margin: 0; }
-.card .sub { color: var(--text-secondary); margin: 2px 0 10px; font-size: 13px; }
-.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-secondary);
-          margin-bottom: 6px; }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
-.sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
-.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-svg { display: block; width: 100%; height: auto; overflow: visible; }
-svg text { font-family: inherit; }
-.name { fill: var(--text-primary); font-size: 13px; }
-.team { fill: var(--text-muted); font-size: 11.5px; }
-.val { fill: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
-.val strong, .strong { fill: var(--text-primary); font-weight: 600; }
-.axis { fill: var(--text-muted); font-size: 11px; }
-.row-hit { fill: transparent; }
-.row:hover .row-hit { fill: var(--grid); }
-details { margin-top: 8px; }
-summary { cursor: pointer; color: var(--text-secondary); font-size: 12.5px; }
-table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 12.5px;
-        font-variant-numeric: tabular-nums; }
-th, td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--grid); }
-th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
-th { color: var(--text-secondary); font-weight: 600; }
-.table-wrap { overflow-x: auto; }
-#tip { position: fixed; pointer-events: none; z-index: 10; background: var(--surface-1);
-       color: var(--text-primary); border: 1px solid var(--border); border-radius: 8px;
-       padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0,0,0,.12);
-       opacity: 0; transition: opacity .08s; max-width: 260px; }
-#tip b { display: block; margin-bottom: 2px; }
-#tip .k { color: var(--text-secondary); }
-footer { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
-.search { position: relative; max-width: 420px; margin: 4px 0 6px; }
-.search input { width: 100%; padding: 9px 12px; font: inherit; color: var(--text-primary);
-                background: var(--surface-0); border: 1px solid var(--border); border-radius: 8px; }
-.search input:focus { outline: 2px solid var(--win); outline-offset: 1px; }
-.search ul { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px;
-             list-style: none; background: var(--surface-1); border: 1px solid var(--border);
-             border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.12); max-height: 280px; overflow-y: auto; }
-.search li { padding: 6px 8px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between;
-             gap: 12px; }
-.search li span { color: var(--text-muted); font-size: 12.5px; }
-.search li[aria-selected="true"], .search li:hover { background: var(--grid); }
-.player-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 14px 0 10px; }
-.player-head h3 { margin: 0; font-size: 18px; }
-.player-head span { color: var(--text-secondary); }
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin-bottom: 12px; }
-.stat { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
-.stat .k { color: var(--text-secondary); font-size: 12px; }
-.stat .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.stat .v small { display: block; font-size: 12px; font-weight: 400; color: var(--text-secondary); }
-.dec { display: inline-block; min-width: 26px; padding: 0 5px; border-radius: 4px; text-align: center;
-       font-size: 11.5px; font-weight: 600; color: #fff; }
+html { scroll-behavior: smooth; scroll-padding-top: 64px; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 14px/1.45 Roboto, "Helvetica Neue", Arial, sans-serif; }
+a { color: inherit; }
+.wrap { max-width: 1140px; margin: 0 auto; padding: 0 16px; }
+.cond { font-family: "Roboto Condensed", "Arial Narrow", Roboto, sans-serif; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---- top bar + season nav ---- */
+.topbar { background: var(--navy); color: #fff; border-bottom: 3px solid var(--red); }
+.topbar-in { display: flex; align-items: center; justify-content: space-between; gap: 16px; height: 56px; }
+.brand { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+.brand-mark { font: 800 22px/1 "Roboto Condensed", "Arial Narrow", sans-serif; letter-spacing: .02em;
+              background: #fff; color: var(--navy); padding: 6px 8px 5px; border-radius: 3px; }
+.brand-name { font: 700 17px/1 "Roboto Condensed", "Arial Narrow", sans-serif; text-transform: uppercase;
+              letter-spacing: .04em; }
+.topbar-meta { display: flex; align-items: center; gap: 18px; font-size: 12.5px; color: #c9d3e3; }
+.topbar-meta a { color: #fff; text-decoration: none; font-weight: 500; }
+.topbar-meta a:hover { text-decoration: underline; }
+.subnav { background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; }
+.subnav-in { display: flex; align-items: stretch; justify-content: space-between; gap: 16px; }
+.tabs { display: flex; }
+.tabs button { border: 0; background: none; cursor: pointer; padding: 14px 16px 11px; color: var(--ink-2);
+               font: 700 15px/1 "Roboto Condensed", "Arial Narrow", sans-serif; letter-spacing: .03em;
+               border-bottom: 3px solid transparent; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--red); }
+.tabs button:hover { color: var(--ink); }
+.jump { display: flex; align-items: center; gap: 18px; font-size: 13px; }
+.jump a { text-decoration: none; color: var(--ink-2); font-weight: 500; }
+.jump a:hover { color: var(--ink); text-decoration: underline; }
+
+/* ---- intro + scoreboard ---- */
+.intro { display: grid; grid-template-columns: minmax(0, 1fr) 430px; gap: 28px; padding-top: 28px; padding-bottom: 8px; }
+h1 { font: 800 34px/1.05 "Roboto Condensed", "Arial Narrow", sans-serif; text-transform: uppercase;
+     letter-spacing: .01em; margin: 0 0 10px; }
+.lede { margin: 0 0 14px; color: var(--ink-2); font-size: 15px; max-width: 62ch; }
+.formula { margin: 0; padding: 10px 12px; border-left: 3px solid var(--red); background: var(--surface);
+           font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: break-word; }
+.scoreboard { background: var(--navy); color: #fff; border-radius: 4px; overflow: hidden; align-self: start; }
+.sb-head { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 14px;
+           background: var(--navy-2); font: 700 14px/1 "Roboto Condensed", "Arial Narrow", sans-serif;
+           text-transform: uppercase; letter-spacing: .05em; }
+.sb-head span { color: #c9d3e3; font-weight: 500; font-size: 12px; letter-spacing: .02em; text-transform: none;
+                font-family: Roboto, sans-serif; }
+.sb-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
+.sb-cell { padding: 10px 14px 12px; border-top: 1px solid rgba(255,255,255,.12); }
+.sb-cell + .sb-cell { border-left: 1px solid rgba(255,255,255,.12); }
+.sb-grid .sb-cell:nth-child(4n+1) { border-left: 0; }
+.sb-k { font: 500 11px/1.2 "Roboto Condensed", "Arial Narrow", sans-serif; text-transform: uppercase;
+        letter-spacing: .06em; color: #aebbd0; }
+.sb-v { font: 700 24px/1.1 "Roboto Condensed", "Arial Narrow", sans-serif; font-variant-numeric: tabular-nums; }
+.sb-v.w { color: #8fbaf5; } .sb-v.l { color: #ff8fa3; }
+
+/* ---- sections + tables ---- */
+.block { margin-top: 28px; }
+.block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+              border-bottom: 2px solid var(--ink); padding-bottom: 6px; margin-bottom: 0; }
+h2 { font: 800 21px/1.1 "Roboto Condensed", "Arial Narrow", sans-serif; text-transform: uppercase;
+     letter-spacing: .02em; margin: 0; }
+.block-note { margin: 0; color: var(--ink-3); font-size: 12.5px; }
+.block-desc { margin: 8px 0 10px; color: var(--ink-2); font-size: 13px; }
+.key { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin: 0 0 8px; }
+.key span { display: inline-flex; align-items: center; gap: 5px; }
+.sw { width: 10px; height: 10px; display: inline-block; border-radius: 2px; }
+.ring { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--ink-3); display: inline-block; }
+.fill { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-top: 0; }
+table.stats { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 13.5px; }
+.stats th { font: 700 11.5px/1 "Roboto Condensed", "Arial Narrow", sans-serif; text-transform: uppercase;
+            letter-spacing: .05em; color: var(--ink-2); text-align: right; padding: 10px 10px 9px;
+            background: var(--surface); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.stats th.sortable { cursor: pointer; user-select: none; }
+.stats th.sortable:hover { color: var(--ink); }
+.stats th[aria-sort="ascending"]::after { content: " ▲"; font-size: 9px; color: var(--red); }
+.stats th[aria-sort="descending"]::after { content: " ▼"; font-size: 9px; color: var(--red); }
+.stats td { padding: 8px 10px; text-align: right; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+.stats tbody tr:nth-child(even) td { background: var(--zebra); }
+.stats tbody tr:hover td { background: var(--line-soft); }
+.stats .l { text-align: left; }
+.stats .rk { width: 36px; color: var(--ink-3); font-weight: 500; }
+.player { font-weight: 700; }
+.player a { text-decoration: none; }
+.player a:hover { text-decoration: underline; color: var(--win); }
+.tm { color: var(--ink-3); font-weight: 400; font-size: 12px; margin-left: 6px; }
+.rec { font-weight: 700; }
+.pill { display: inline-block; min-width: 38px; padding: 2px 6px; border-radius: 3px; font-weight: 700;
+        text-align: center; }
+.pill.pos { background: var(--win-tint); color: var(--win); }
+.pill.neg { background: var(--loss-tint); color: var(--loss); }
+.dist { display: flex; height: 12px; gap: 2px; min-width: 140px; }
+.dist i { display: block; height: 100%; border-radius: 2px; }
+.col-viz { width: 34%; }
+.col-viz svg { display: block; width: 100%; height: 22px; }
+.more { margin: 10px 0 0; border: 1px solid var(--ink); background: var(--surface); color: var(--ink);
+        font: 700 13px/1 "Roboto Condensed", "Arial Narrow", sans-serif; text-transform: uppercase;
+        letter-spacing: .05em; padding: 9px 14px; cursor: pointer; border-radius: 3px; }
+.more:hover { background: var(--ink); color: var(--surface); }
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.split .block { min-width: 0; }
+
+/* ---- player search ---- */
+.search { position: relative; max-width: 460px; margin: 12px 0 4px; }
+.search input { width: 100%; padding: 11px 12px 11px 38px; font: 15px Roboto, sans-serif; color: var(--ink);
+                background: var(--surface); border: 1px solid var(--line); border-radius: 3px; }
+.search input:focus { outline: 2px solid var(--win); outline-offset: 0; border-color: var(--win); }
+.search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px;
+              stroke: var(--ink-3); fill: none; stroke-width: 2; pointer-events: none; }
+.search ul { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 2px); margin: 0; padding: 0;
+             list-style: none; background: var(--surface); border: 1px solid var(--line);
+             box-shadow: 0 8px 24px rgba(4,30,66,.14); max-height: 300px; overflow-y: auto; }
+.search li { padding: 9px 12px; cursor: pointer; display: flex; justify-content: space-between; gap: 12px;
+             border-bottom: 1px solid var(--line-soft); font-weight: 500; }
+.search li span { color: var(--ink-3); font-size: 12.5px; font-weight: 400; }
+.search li[aria-selected="true"], .search li:hover { background: var(--line-soft); }
+.pcard { margin-top: 14px; background: var(--surface); border: 1px solid var(--line); }
+.pcard-head { background: var(--navy); color: #fff; padding: 14px 16px; border-bottom: 3px solid var(--red);
+              display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.pcard-head h3 { margin: 0; font: 800 28px/1 "Roboto Condensed", "Arial Narrow", sans-serif;
+                 text-transform: uppercase; letter-spacing: .01em; }
+.pcard-head span { color: #c9d3e3; font-size: 13px; }
+.statline { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); border-bottom: 1px solid var(--line); }
+.statline > div { padding: 10px 14px; border-right: 1px solid var(--line-soft); }
+.statline .k { font: 700 11px/1.2 "Roboto Condensed", "Arial Narrow", sans-serif; text-transform: uppercase;
+               letter-spacing: .06em; color: var(--ink-3); }
+.statline .v { font: 700 24px/1.15 "Roboto Condensed", "Arial Narrow", sans-serif; font-variant-numeric: tabular-nums; }
+.statline .s { font-size: 12px; color: var(--ink-2); }
+.pcard-body { padding: 12px 16px 14px; }
+.pcard-body h4 { margin: 4px 0 6px; font: 700 13px/1 "Roboto Condensed", "Arial Narrow", sans-serif;
+                 text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); }
+.pcard-body svg { display: block; width: 100%; height: auto; }
+.axis { fill: var(--ink-3); font-size: 11px; font-family: Roboto, sans-serif; }
+.note { color: var(--ink-3); font-size: 12px; margin: 6px 0 0; }
+.dec { display: inline-block; min-width: 30px; padding: 1px 5px; border-radius: 2px; text-align: center;
+       font: 700 11.5px/1.4 "Roboto Condensed", "Arial Narrow", sans-serif; color: #fff; }
 .dec-W { background: var(--win); } .dec-L { background: var(--loss); }
-.dec-ND { background: var(--nd); color: var(--text-primary); }
-.empty { color: var(--text-secondary); margin: 12px 0 4px; }
+.dec-ND { background: var(--nd); color: var(--ink); }
+details.log { margin-top: 12px; border-top: 1px solid var(--line); }
+details.log summary { cursor: pointer; padding: 10px 0; font: 700 13px/1 "Roboto Condensed", "Arial Narrow", sans-serif;
+                      text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); }
+details.log .table-wrap { border: 1px solid var(--line); }
+.empty { color: var(--ink-2); margin: 12px 0 4px; }
 .linkish { border: 0; background: none; padding: 0; font: inherit; color: var(--win); cursor: pointer;
            text-decoration: underline; }
+
+/* ---- footer ---- */
+footer { margin-top: 40px; background: var(--navy); color: #c9d3e3; font-size: 12.5px; border-top: 3px solid var(--red); }
+.foot-in { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; padding-top: 22px; padding-bottom: 26px; }
+footer h5 { margin: 0 0 6px; color: #fff; font: 700 13px/1 "Roboto Condensed", "Arial Narrow", sans-serif;
+            text-transform: uppercase; letter-spacing: .06em; }
+footer p { margin: 0 0 8px; }
+footer a { color: #fff; }
+
+/* ---- responsive ---- */
+@media (max-width: 960px) {
+  .intro { grid-template-columns: 1fr; }
+  .split { grid-template-columns: 1fr; gap: 0; }
+}
+@media (max-width: 700px) {
+  .jump { display: none; }
+  .hide-sm { display: none; }
+  .foot-in { grid-template-columns: 1fr; }
+  .topbar-meta .gh { display: none; }
+}
+@media (max-width: 520px) {
+  h1 { font-size: 28px; }
+  .brand-name { display: none; }
+  .sb-grid { grid-template-columns: repeat(2, 1fr); }
+  .sb-grid .sb-cell:nth-child(odd) { border-left: 0; }
+  .sb-grid .sb-cell:nth-child(even) { border-left: 1px solid rgba(255,255,255,.12); }
+  .hide-xs { display: none; }
+  .stats td, .stats th { padding-left: 7px; padding-right: 7px; }
+  .dist { min-width: 80px; }
+  .tm { display: block; margin-left: 0; }
+}
 </style>
 </head>
 <body>
-<main>
-  <h1>SGV Leaderboards</h1>
-  <p class="note" id="through"></p>
-  <p class="lede">Starter Game Value credits each start as an SGV win, loss or no-decision based on the
-  pitching alone. It assumes a league-average offense and bullpen and adjusts for the ballpark.
-  A start is an SGV ND when it left the team a <span id="band"></span> chance to win.</p>
-  <p class="formula" aria-label="SGV formula">SGV = (ER + Bullpen RA9 × (9 − IP) / 9) − (Runs per team game × Park factor)</p>
-  <div class="controls">
-    <div class="seg" id="seasons" role="group" aria-label="Season"></div>
-    <span class="note" id="qual"></span>
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <a class="brand" href="./" aria-label="Starter Game Value home">
+      <span class="brand-mark">SGV</span><span class="brand-name">Starter Game Value</span>
+    </a>
+    <div class="topbar-meta">
+      <span id="through"></span>
+      <a class="gh" href="https://github.com/Luca-Pfi/Advanced-Sabermetrics-Development-SGV">GitHub</a>
+    </div>
   </div>
-  <div id="boards"></div>
-  <section class="card" id="lookup">
-    <h2 id="lookup-title">Pitcher lookup</h2>
-    <p class="sub">Search any starter to see their SGV record and every start of the selected season.</p>
+</header>
+<nav class="subnav" aria-label="Season and sections">
+  <div class="wrap subnav-in">
+    <div class="tabs" id="seasons" role="tablist" aria-label="Season"></div>
+    <div class="jump">
+      <a href="#leaders">Leaders</a><a href="#hard-luck">Hard Luck</a><a href="#fortunate">Fortunate</a><a href="#lookup">Player Search</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+  <section class="wrap intro">
+    <div>
+      <h1>Starter Game Value</h1>
+      <p class="lede">A pitcher's win-loss record depends on run support and the bullpen. SGV gives every start
+      a win, loss or no-decision on the pitching alone, against a league-average offense and bullpen, adjusted
+      for the ballpark. A start is an SGV no-decision when it left the team a <span id="band"></span> chance to win.</p>
+      <p class="formula" aria-label="SGV formula">SGV = (ER + Bullpen RA9 × (9 − IP) / 9) − (Runs per team game × Park factor)</p>
+    </div>
+    <div class="scoreboard" id="scoreboard" aria-live="polite"></div>
+  </section>
+
+  <section class="wrap block" id="leaders">
+    <div class="block-head"><h2>SGV Leaders</h2><p class="block-note" id="qual"></p></div>
+    <div class="table-wrap"><table class="stats" id="leaders-table"></table></div>
+    <button class="more" id="leaders-more" type="button"></button>
+  </section>
+
+  <div class="wrap split">
+    <section class="block" id="hard-luck">
+      <div class="block-head"><h2>Hard Luck</h2><p class="block-note">Real record undersells the pitching</p></div>
+      <p class="block-desc">Run support or the bullpen let them down. Swing = SGV net wins − real net wins.</p>
+      <div class="key"><span><i class="ring"></i>Real</span><span><i class="fill" style="background:var(--win)"></i>SGV</span><span>net wins (W − L)</span></div>
+      <div class="table-wrap"><table class="stats" id="hard-luck-table"></table></div>
+    </section>
+    <section class="block" id="fortunate">
+      <div class="block-head"><h2>Fortunate</h2><p class="block-note">Real record flatters the pitching</p></div>
+      <p class="block-desc">The offense or the bullpen bailed them out. Same scale as Hard Luck.</p>
+      <div class="key"><span><i class="ring"></i>Real</span><span><i class="fill" style="background:var(--loss)"></i>SGV</span><span>net wins (W − L)</span></div>
+      <div class="table-wrap"><table class="stats" id="fortunate-table"></table></div>
+    </section>
+  </div>
+
+  <section class="wrap block" id="lookup">
+    <div class="block-head"><h2 id="lookup-title">Player Search</h2><p class="block-note">Every starter, qualified or not</p></div>
     <div class="search">
-      <input id="search" type="search" placeholder="Search a pitcher, e.g. Skenes" autocomplete="off"
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="search" type="search" placeholder="Search a pitcher" autocomplete="off"
              role="combobox" aria-expanded="false" aria-controls="matches" aria-autocomplete="list"
              aria-label="Search a pitcher">
       <ul id="matches" role="listbox" hidden></ul>
     </div>
     <div id="player"></div>
   </section>
-  <footer id="foot"></footer>
 </main>
-<div id="tip" role="tooltip"></div>
+
+<footer>
+  <div class="wrap foot-in">
+    <div>
+      <h5>Method</h5>
+      <p id="foot"></p>
+      <p>Qualified: at least 1 start per 8 team games (20 GS over a full season). Swing = (SGV W − SGV L) − (real W − real L).</p>
+    </div>
+    <div>
+      <h5>Data</h5>
+      <p>Box scores: MLB Stats API. Park factors: FanGraphs.</p>
+      <p><a href="sgv_records.xlsx">Download every start (.xlsx)</a> · <a href="https://github.com/Luca-Pfi/Advanced-Sabermetrics-Development-SGV">Code on GitHub</a></p>
+      <p>Independent project. Not affiliated with or endorsed by Major League Baseball.</p>
+    </div>
+  </div>
+</footer>
+
 <script>
 const DATA = __DATA__;
 const META = __META__;
 const NS = "http://www.w3.org/2000/svg";
-const ROW = 30, TOP = 8;
-let W = 760, LABEL = 190, NARROW = false;   // set from the container width in render()
-const tip = document.getElementById("tip");
-
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const signed = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n);
+const dec2 = (n) => (n < 0 ? "−" : "") + Math.abs(n).toFixed(2);
+const rec = (a) => `${a[0]}-${a[1]}`;
+const net = (a) => a[0] - a[1];
+const norm = (t) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const ipText = (outs) => `${Math.floor(outs / 3)}.${outs % 3}`;
+const fmt = (n) => n.toLocaleString("en-US");
 function el(tag, attrs = {}, text) {
   const n = document.createElementNS(NS, tag);
   for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
   if (text !== undefined) n.textContent = text;
   return n;
 }
-const rec = (a) => `${a[0]}-${a[1]}`;
-const recNd = (a) => `${a[0]}-${a[1]}-${a[2]}`;
-const net = (a) => a[0] - a[1];
-const signed = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n);
 
-function showTip(e, p) {
-  tip.innerHTML = `<b>${p.name} <span class="k">${p.team}</span></b>
-    <div><span class="k">Starts</span> ${p.gs}</div>
-    <div><span class="k">SGV W-L-ND</span> ${recNd(p.sgv)}</div>
-    <div><span class="k">Real W-L-ND</span> ${recNd(p.act)}</div>
-    <div><span class="k">Avg SGV</span> ${p.avg.toFixed(2)}</div>
-    <div><span class="k">Swing</span> ${signed(p.swing)} net wins</div>`;
-  tip.style.opacity = 1;
-  const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8);
-  const y = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8);
-  tip.style.left = x + "px"; tip.style.top = y + "px";
-}
-function hideTip() { tip.style.opacity = 0; }
-
-function nameLabel(svg, p, i, y) {
-  const parts = p.name.split(" ");
-  const name = NARROW && parts.length > 1 ? `${parts[0][0]}. ${parts.slice(1).join(" ")}` : p.name;
-  svg.append(el("text", { x: 0, y: y + 4, class: "name" }, `${i + 1}. ${name}`));
-  if (!NARROW) {
-    svg.append(el("text", { x: LABEL - 6, y: y + 4, class: "team", "text-anchor": "end" }, p.team));
-  }
-}
-// One <g> per pitcher: hovering anywhere on the row (label, bar, dots) shows the tooltip.
-function rowGroup(svg, p, y) {
-  const g = el("g", { class: "row" });
-  g.append(el("rect", { x: 0, y: y - ROW / 2, width: W, height: ROW, class: "row-hit", rx: 4 }));
-  g.addEventListener("mousemove", (e) => showTip(e, p));
-  g.addEventListener("mouseleave", hideTip);
-  svg.append(g);
-  return g;
-}
-
-// Stacked W | ND | L bar, length = games started.
-function recordChart(rows) {
-  const maxGs = Math.max(...rows.map((r) => r.gs));
-  const plotW = W - LABEL - (NARROW ? 44 : 96);
-  const svg = el("svg", { viewBox: `0 0 ${W} ${TOP + rows.length * ROW}`, role: "img",
-                         "aria-label": "Best SGV records, stacked SGV wins, no-decisions and losses" });
-  rows.forEach((p, i) => {
-    const y = TOP + i * ROW + ROW / 2;
-    const g = rowGroup(svg, p, y);
-    nameLabel(g, p, i, y);
-    let x = LABEL;
-    const segs = [[p.sgv[0], "var(--win)"], [p.sgv[2], "var(--nd)"], [p.sgv[1], "var(--loss)"]];
-    segs.forEach(([n, color]) => {
-      if (!n) return;
-      const w = (n / maxGs) * plotW;
-      g.append(el("rect", { x, y: y - 8, width: Math.max(w - 2, 1), height: 16, fill: color, rx: 3 }));
-      x += w;
-    });
-    const t = el("text", { x: x + 6, y: y + 4, class: "val" });
-    t.append(el("tspan", { class: "strong" }, rec(p.sgv)));
-    if (!NARROW) t.append(el("tspan", {}, ` · ${p.sgv[2]} ND`));
-    g.append(t);
-  });
-  return svg;
-}
-
-// Dumbbell: real net wins (hollow) -> SGV net wins (filled), shared scale per season.
-function swingChart(rows, lo, hi, color) {
-  const plotL = LABEL + 8, plotR = W - (NARROW ? 40 : 150);
-  const sx = (v) => plotL + ((v - lo) / (hi - lo)) * (plotR - plotL);
-  const h = TOP + rows.length * ROW + 22;
-  const svg = el("svg", { viewBox: `0 0 ${W} ${h}`, role: "img",
-                         "aria-label": "Real net wins versus SGV net wins per pitcher" });
-  const step = NARROW ? 10 : 5;
-  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
-    svg.append(el("line", { x1: sx(v), x2: sx(v), y1: TOP - 4, y2: h - 18,
-                            stroke: v === 0 ? "var(--text-muted)" : "var(--grid)",
-                            "stroke-width": 1 }));
-    svg.append(el("text", { x: sx(v), y: h - 4, class: "axis", "text-anchor": "middle" }, signed(v)));
-  }
-  rows.forEach((p, i) => {
-    const y = TOP + i * ROW + ROW / 2;
-    const g = rowGroup(svg, p, y);
-    nameLabel(g, p, i, y);
-    const a = sx(net(p.act)), b = sx(net(p.sgv));
-    g.append(el("line", { x1: a, x2: b, y1: y, y2: y, stroke: color, "stroke-width": 2,
-                            "stroke-linecap": "round", opacity: 0.55 }));
-    g.append(el("circle", { cx: a, cy: y, r: 5, fill: "var(--surface-1)",
-                              stroke: "var(--actual)", "stroke-width": 2 }));
-    g.append(el("circle", { cx: b, cy: y, r: 5.5, fill: color,
-                              stroke: "var(--surface-1)", "stroke-width": 2 }));
-    const t = el("text", { x: plotR + 14, y: y + 4, class: "val" });
-    if (NARROW) {
-      t.append(el("tspan", { class: "strong" }, signed(p.swing)));
-    } else {
-      t.append(el("tspan", {}, `${rec(p.act)} → `));
-      t.append(el("tspan", { class: "strong" }, rec(p.sgv)));
-      t.append(el("tspan", {}, `  ${signed(p.swing)}`));
-    }
-    g.append(t);
-  });
-  return svg;
-}
-
-function table(rows) {
-  const wrap = document.createElement("div");
-  wrap.className = "table-wrap";
-  wrap.innerHTML = `<table><thead><tr><th>#</th><th>Pitcher</th><th>Team</th><th>GS</th>
-    <th>SGV W-L-ND</th><th>Real W-L-ND</th><th>Avg SGV</th><th>Swing</th></tr></thead><tbody>${
-    rows.map((p, i) => `<tr><td>${i + 1}</td><td>${p.name}</td><td>${p.team}</td><td>${p.gs}</td>
-      <td>${recNd(p.sgv)}</td><td>${recNd(p.act)}</td><td>${p.avg.toFixed(2)}</td>
-      <td>${signed(p.swing)}</td></tr>`).join("")}</tbody></table>`;
-  return wrap;
-}
-
-function card(title, sub, legendHtml, chart, rows) {
-  const s = document.createElement("section");
-  s.className = "card";
-  s.innerHTML = `<h2>${title}</h2><p class="sub">${sub}</p><div class="legend">${legendHtml}</div>`;
-  if (rows.length) {
-    s.append(chart);
-  } else {
-    s.insertAdjacentHTML("beforeend", `<p class="sub">No qualified starters yet.</p>`);
-  }
-  const d = document.createElement("details");
-  d.innerHTML = "<summary>Show as table</summary>";
-  d.append(table(rows));
-  s.append(d);
-  return s;
-}
-
-function render(season) {
-  const d = DATA.find((x) => x.season === season);
-  current = season;
-  document.getElementById("band").textContent = d.band;
-  const blend = d.currentWeight < 1
-    ? `Early season: league averages are ${Math.round(d.currentWeight * 100)}% ${season} and ` +
-      `${Math.round((1 - d.currentWeight) * 100)}% ${season - 1} until ${season} has enough games. `
-    : "";
-  document.getElementById("foot").textContent = blend +
-    `${season} thresholds (fixed for the season, calibrated on ${d.calibratedOn}): ` +
-    `SGV W if SGV < ${d.wCut}, SGV L if SGV > ${d.lCut}. ` +
-    "Data: MLB Stats API; park factors: FanGraphs.";
-  W = Math.max(300, Math.round(document.getElementById("boards").clientWidth - 38));
-  NARROW = W < 560;
-  LABEL = NARROW ? 118 : 190;
-  document.querySelectorAll("#seasons button").forEach((b) =>
-    b.setAttribute("aria-pressed", String(+b.dataset.season === season)));
-  document.getElementById("qual").textContent =
-    `${d.qualified} qualified starters (min. ${d.qualifier} GS)`;
-  const swings = [...d.hardLuck, ...d.fortunate].flatMap((p) => [net(p.act), net(p.sgv)]);
-  const lo = Math.min(-5, Math.floor(Math.min(...swings) / 5) * 5);
-  const hi = Math.max(5, Math.ceil(Math.max(...swings) / 5) * 5);
-  const recLegend = `<span><i class="sw" style="background:var(--win)"></i>SGV W</span>
-    <span><i class="sw" style="background:var(--nd)"></i>SGV ND</span>
-    <span><i class="sw" style="background:var(--loss)"></i>SGV L</span>`;
-  const swLegend = (c) => `<span><i class="dot" style="border:2px solid var(--actual)"></i>Real record</span>
-    <span><i class="dot" style="background:${c}"></i>SGV record</span>
-    <span>Net wins (W−L) · swing = SGV net − real net</span>`;
-  const boards = document.getElementById("boards");
-  boards.replaceChildren(
-    card(`Best SGV Records — ${season}`,
-         "Most SGV wins over SGV losses. Bar length is games started.",
-         recLegend, recordChart(d.best), d.best),
-    card(`Hard-Luck Starters — ${season}`,
-         "Pitched better than their real record shows: run support or the bullpen let them down.",
-         swLegend("var(--win)"), swingChart(d.hardLuck, lo, hi, "var(--win)"), d.hardLuck),
-    card(`Fortunate Starters — ${season}`,
-         "Real record is better than their pitching earned: the offense or bullpen bailed them out.",
-         swLegend("var(--loss)"), swingChart(d.fortunate, lo, hi, "var(--loss)"), d.fortunate),
-  );
-  renderLookup();
-  try { localStorage.setItem("sgv-season", season); } catch (e) {}
-}
-
-const seg = document.getElementById("seasons");
-DATA.forEach((d) => {
-  const b = document.createElement("button");
-  b.textContent = d.season; b.dataset.season = d.season;
-  b.addEventListener("click", () => render(d.season));
-  seg.append(b);
-});
-document.getElementById("through").textContent = "Updated through games of " +
-  new Date(META.through + "T12:00:00").toLocaleDateString("en-US",
-    { month: "long", day: "numeric", year: "numeric" });
-let current, start = DATA[DATA.length - 1].season;
-let selected = null;   // pitcher id shown in the lookup
-const norm = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-const ipText = (outs) => `${Math.floor(outs / 3)}.${outs % 3}`;
-const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let current, selected = null, expanded = false, sort = { key: "rank", dir: 1 };
 const seasonData = () => DATA.find((x) => x.season === current);
+
+/* ---------- scoreboard ---------- */
+function renderScoreboard(d) {
+  const t = d.totals;
+  const cell = (k, v, cls = "") => `<div class="sb-cell"><div class="sb-k">${k}</div><div class="sb-v ${cls}">${v}</div></div>`;
+  const blend = d.currentWeight < 1 ? ` · early season, ${Math.round(d.currentWeight * 100)}% ${d.season} averages` : "";
+  document.getElementById("scoreboard").innerHTML =
+    `<div class="sb-head">${d.season} Season<span>${fmt(t.starts)} starts${blend}</span></div>
+     <div class="sb-grid">
+       ${cell("SGV W", fmt(t.W), "w")}${cell("SGV L", fmt(t.L), "l")}${cell("SGV ND", fmt(t.ND))}${cell("Qualified", d.qualified)}
+       ${cell("W if SGV <", dec2(d.wCut))}${cell("L if SGV >", "+" + d.lCut.toFixed(2))}${cell("Lg R/G", d.rpg.toFixed(2))}${cell("Pen RA9", d.ra9.toFixed(2))}
+     </div>`;
+}
+
+/* ---------- leaders table ---------- */
+const LEAD_COLS = [
+  { key: "rank", label: "Rk", cls: "rk", val: (r) => r.rank },
+  { key: "name", label: "Player", cls: "l", val: (r) => norm(r.name), dir: 1 },
+  { key: "gs", label: "GS", cls: "hide-xs", val: (r) => r.gs, dir: -1 },
+  { key: "sgv", label: "SGV", val: (r) => net(r.sgv) * 1000 + r.sgv[0], dir: -1 },
+  { key: "nd", label: "ND", cls: "hide-sm", val: (r) => r.sgv[2], dir: -1 },
+  { key: "dist", label: "W · ND · L", cls: "l col-dist hide-xs" },
+  { key: "real", label: "Real", val: (r) => net(r.act) * 1000 + r.act[0], dir: -1 },
+  { key: "swing", label: "Swing", cls: "hide-sm", val: (r) => r.swing, dir: -1 },
+  { key: "avg", label: "Avg SGV", cls: "hide-sm", val: (r) => r.avg, dir: 1 },
+];
+function playerLink(r) {
+  return `<span class="player"><a href="#lookup" data-name="${esc(r.name)}">${esc(r.name)}</a></span><span class="tm">${esc(r.team)}</span>`;
+}
+function renderLeaders(d) {
+  const col = LEAD_COLS.find((c) => c.key === sort.key);
+  const rows = [...d.all].sort((a, b) => (col.val(a) > col.val(b) ? 1 : col.val(a) < col.val(b) ? -1 : a.rank - b.rank) * sort.dir);
+  const shown = expanded ? rows : rows.slice(0, 10);
+  const maxGs = Math.max(...d.all.map((r) => r.gs));
+  const head = LEAD_COLS.map((c) => {
+    const s = c.val ? ` class="sortable ${c.cls || ""}" data-key="${c.key}"` : ` class="${c.cls || ""}"`;
+    const aria = c.key === sort.key ? ` aria-sort="${sort.dir === 1 ? "ascending" : "descending"}"` : "";
+    return `<th scope="col"${s}${aria}>${c.label}</th>`;
+  }).join("");
+  const body = shown.map((r) => {
+    const seg = (n, c, label) => n ? `<i style="width:${(n / maxGs) * 100}%;background:var(${c})" title="${n} SGV ${label}"></i>` : "";
+    return `<tr>
+      <td class="rk">${r.rank}</td>
+      <td class="l">${playerLink(r)}</td>
+      <td class="hide-xs">${r.gs}</td>
+      <td class="rec">${rec(r.sgv)}</td>
+      <td class="hide-sm">${r.sgv[2]}</td>
+      <td class="l col-dist hide-xs"><div class="dist">${seg(r.sgv[0], "--win", "W")}${seg(r.sgv[2], "--nd", "ND")}${seg(r.sgv[1], "--loss", "L")}</div></td>
+      <td>${rec(r.act)}</td>
+      <td class="hide-sm"><span class="pill ${r.swing > 0 ? "pos" : r.swing < 0 ? "neg" : ""}">${signed(r.swing)}</span></td>
+      <td class="hide-sm">${dec2(r.avg)}</td>
+    </tr>`;
+  }).join("");
+  const table = document.getElementById("leaders-table");
+  table.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+  table.querySelectorAll("th.sortable").forEach((th) => th.addEventListener("click", () => {
+    const c = LEAD_COLS.find((x) => x.key === th.dataset.key);
+    sort = sort.key === c.key ? { key: c.key, dir: -sort.dir } : { key: c.key, dir: c.dir || 1 };
+    renderLeaders(seasonData());
+  }));
+  const more = document.getElementById("leaders-more");
+  more.hidden = d.all.length <= 10;
+  more.textContent = expanded ? "Show top 10" : `Show all ${d.all.length} qualified`;
+}
+document.getElementById("leaders-more").addEventListener("click", () => {
+  expanded = !expanded;
+  renderLeaders(seasonData());
+});
+
+/* ---------- hard luck / fortunate ---------- */
+// Drawn at the cell's real pixel width, so the dots stay round.
+function dumbbell(r, lo, hi, color, width) {
+  const w = Math.max(60, width), h = 22, pad = 6, sx = (v) => pad + (v - lo) / (hi - lo) * (w - 2 * pad);
+  const svg = el("svg", { viewBox: `0 0 ${w} ${h}`, role: "img",
+    "aria-label": `${r.name}: real ${rec(r.act)}, SGV ${rec(r.sgv)}` });
+  svg.append(el("line", { x1: sx(0), x2: sx(0), y1: 2, y2: h - 2, stroke: "var(--line)", "stroke-width": 1.5 }));
+  const a = sx(net(r.act)), b = sx(net(r.sgv));
+  svg.append(el("line", { x1: a, x2: b, y1: h / 2, y2: h / 2, stroke: color, "stroke-width": 2.5, opacity: 0.45 }));
+  const ring = el("circle", { cx: a, cy: h / 2, r: 4.5, fill: "var(--surface)", stroke: "var(--ink-3)", "stroke-width": 2 });
+  ring.append(el("title", {}, `Real ${rec(r.act)} (${signed(net(r.act))} net)`));
+  const dot = el("circle", { cx: b, cy: h / 2, r: 5, fill: color });
+  dot.append(el("title", {}, `SGV ${rec(r.sgv)} (${signed(net(r.sgv))} net)`));
+  svg.append(ring, dot);
+  return svg;
+}
+function renderSwing(id, rows, lo, hi, color) {
+  const table = document.getElementById(id);
+  table.innerHTML = `<thead><tr><th class="rk">Rk</th><th class="l">Player</th><th>Real</th><th>SGV</th><th>Swing</th>
+    <th class="l col-viz hide-xs">Real → SGV</th></tr></thead><tbody>${
+    rows.map((r, i) => `<tr><td class="rk">${i + 1}</td><td class="l">${playerLink(r)}</td><td>${rec(r.act)}</td>
+      <td class="rec">${rec(r.sgv)}</td><td><span class="pill ${r.swing > 0 ? "pos" : "neg"}">${signed(r.swing)}</span></td>
+      <td class="l col-viz hide-xs"></td></tr>`).join("") ||
+    `<tr><td colspan="6" class="l">No qualified starters yet.</td></tr>`}</tbody>`;
+  table.querySelectorAll("td.col-viz").forEach((td, i) => {
+    const cs = getComputedStyle(td);
+    const width = td.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    if (width > 0) td.append(dumbbell(rows[i], lo, hi, color, width));
+  });
+}
+
+/* ---------- player search ---------- */
 const searchBox = document.getElementById("search");
 const matchList = document.getElementById("matches");
 let matches = [], active = -1;
-
 function showMatches() {
   const q = norm(searchBox.value.trim());
   matches = q ? seasonData().players.filter((p) => norm(p.n).includes(q))
@@ -471,39 +562,46 @@ matchList.addEventListener("mousedown", (e) => {
   if (li) { e.preventDefault(); choose(matches[+li.dataset.i]); }
 });
 searchBox.addEventListener("blur", () => { matchList.hidden = true; });
+// A player name in any table opens that player in the search.
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("a[data-name]");
+  if (!a) return;
+  const p = seasonData().players.find((x) => x.n === a.dataset.name);
+  if (!p) return;
+  e.preventDefault();   // keep the #pitcher= link instead of jumping to #lookup
+  choose(p);
+  document.getElementById("lookup").scrollIntoView();
+});
 
 // SGV of every start; negative (good) drawn upward, dashed lines at the season's W and L cut-offs.
-function startChart(p, d) {
-  const w = W, h = 146, x0 = 34, y0 = 10, plotH = 130;
+function startChart(p, d, width) {
+  const w = Math.max(300, width), h = 150, x0 = 30, y0 = 8, plotH = 128;
   const vals = p.g.map((g) => g[5]);
   const top = Math.min(-3, Math.floor(Math.min(...vals, d.wCut))), bot = Math.max(3, Math.ceil(Math.max(...vals, d.lCut)));
   const sy = (v) => y0 + (v - top) / (bot - top) * plotH;
-  const band = (w - x0 - 4) / p.g.length, bw = Math.max(2, Math.min(18, band - 2));
+  const band = (w - x0 - 4) / p.g.length, bw = Math.max(2, Math.min(16, band - 2));
   const svg = el("svg", { viewBox: `0 0 ${w} ${h}`, role: "img", "aria-label": `SGV of each ${p.n} start in ${d.season}` });
   for (let v = top; v <= bot; v++) {
     if (v % 2) continue;
-    svg.append(el("line", { x1: x0, x2: w, y1: sy(v), y2: sy(v), stroke: v === 0 ? "var(--text-muted)" : "var(--grid)" }));
+    svg.append(el("line", { x1: x0, x2: w, y1: sy(v), y2: sy(v), stroke: v === 0 ? "var(--ink-3)" : "var(--line-soft)" }));
     svg.append(el("text", { x: x0 - 6, y: sy(v) + 4, class: "axis", "text-anchor": "end" }, v === 0 ? "0" : signed(v)));
   }
-  [[d.wCut, "W"], [d.lCut, "L"]].forEach(([v, k]) => {
-    svg.append(el("line", { x1: x0, x2: w, y1: sy(v), y2: sy(v), stroke: k === "W" ? "var(--win)" : "var(--loss)",
-                            "stroke-dasharray": "4 4", opacity: 0.8 }));
-  });
+  [[d.wCut, "var(--win)"], [d.lCut, "var(--loss)"]].forEach(([v, c]) =>
+    svg.append(el("line", { x1: x0, x2: w, y1: sy(v), y2: sy(v), stroke: c, "stroke-dasharray": "4 4", opacity: 0.8 })));
   p.g.forEach((g, i) => {
     const [date, opp, ha, outs, er, sgv, dec, act] = g;
     const x = x0 + i * band + (band - bw) / 2, ya = sy(0), yb = sy(sgv);
-    const r = el("rect", { x, y: Math.min(ya, yb), width: bw, height: Math.max(1, Math.abs(yb - ya)), rx: 2,
+    const r = el("rect", { x, y: Math.min(ya, yb), width: bw, height: Math.max(1, Math.abs(yb - ya)), rx: 1.5,
       fill: dec === "W" ? "var(--win)" : dec === "L" ? "var(--loss)" : "var(--nd)" });
     r.append(el("title", {}, `${date} ${ha === "H" ? "vs" : "@"} ${opp}: ${ipText(outs)} IP, ${er} ER, ` +
-      `SGV ${sgv.toFixed(2)} (SGV ${dec}, real ${act})`));
+      `SGV ${dec2(sgv)} (SGV ${dec}, real ${act})`));
     svg.append(r);
   });
   return svg;
 }
-
 function renderLookup() {
   const d = seasonData(), box = document.getElementById("player");
-  document.getElementById("lookup-title").textContent = `Pitcher lookup — ${current}`;
+  document.getElementById("lookup-title").textContent = `Player Search · ${current}`;
   if (selected === null) { box.replaceChildren(); return; }
   const p = d.players.find((x) => x.id === selected);
   if (!p) {
@@ -511,41 +609,71 @@ function renderLookup() {
     const name = DATA.flatMap((x) => x.players).find((y) => y.id === selected).n;
     box.innerHTML = `<p class="empty">${esc(name)} made no starts in ${current}.` +
       other.map((x) => ` <button class="linkish" data-season="${x.season}">See ${x.season}</button>`).join("") + "</p>";
-    box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => render(+b.dataset.season)));
+    box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => renderSeason(+b.dataset.season)));
     return;
   }
-  const net = p.s[0] - p.s[1], swing = net - (p.a[0] - p.a[1]);
+  const swing = net(p.s) - net(p.a);
   const era = p.outs ? (27 * p.er / p.outs).toFixed(2) : "–";
-  const stat = (k, v, small = "") => `<div class="stat"><div class="k">${k}</div><div class="v">${v}` +
-    (small ? ` <small>${small}</small>` : "") + "</div></div>";
-  box.innerHTML = `<div class="player-head"><h3>${esc(p.n)}</h3><span>${esc(p.t)} · ${current}</span></div>
-    <div class="stats">
-      ${stat("SGV record", `${p.s[0]}-${p.s[1]}`, `${p.s[2]} ND`)}
-      ${stat("Real record", `${p.a[0]}-${p.a[1]}`, `${p.a[2]} ND`)}
+  const stat = (k, v, s = "") => `<div><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s || "&nbsp;"}</div></div>`;
+  box.innerHTML = `<div class="pcard">
+    <div class="pcard-head"><h3>${esc(p.n)}</h3><span>${esc(p.t)} · ${current}${p.rank ? ` · SGV rank #${p.rank} of ${d.qualified}` : ` · not qualified (${d.qualifier} GS)`}</span></div>
+    <div class="statline">
+      ${stat("SGV", rec(p.s), `${p.s[2]} ND`)}
+      ${stat("Real", rec(p.a), `${p.a[2]} ND`)}
       ${stat("Swing", signed(swing), "net wins")}
-      ${stat("Avg SGV", p.avg.toFixed(2))}
-      ${stat("GS · IP", `${p.g.length}`, `${ipText(p.outs)} IP`)}
+      ${stat("Avg SGV", dec2(p.avg))}
+      ${stat("GS", p.g.length, `${ipText(p.outs)} IP`)}
       ${stat("ERA", era, `${p.er} ER`)}
-      ${stat("SGV rank", p.rank ? `#${p.rank}` : "–", p.rank ? `of ${d.qualified}` : `not qualified (${d.qualifier} GS)`)}
-    </div>`;
-  box.append(startChart(p, d));
-  box.insertAdjacentHTML("beforeend", `<p class="note">SGV of each start, in order. Bars above 0 were ` +
-    `better than average; dashed lines are the SGV W (${d.wCut}) and SGV L (${d.lCut}) cut-offs. ` +
-    `Hover a bar for the line.</p>`);
-  const det = document.createElement("details");
-  det.innerHTML = `<summary>Game log (${p.g.length} starts)</summary><div class="table-wrap"><table><thead><tr>
-    <th>Date</th><th>Opp</th><th>IP</th><th>ER</th><th>SGV</th><th>SGV dec</th><th>Real dec</th><th>Team</th>
-    </tr></thead><tbody>${p.g.map(([date, opp, ha, outs, er, sgv, dec, act, res]) => `<tr><td>${date}</td>
-    <td>${ha === "H" ? "vs" : "@"} ${esc(opp)}</td><td>${ipText(outs)}</td><td>${er}</td><td>${sgv.toFixed(2)}</td>
-    <td><span class="dec dec-${dec}">${dec}</span></td><td>${act}</td><td>${res}</td></tr>`).join("")}
-    </tbody></table></div>`;
-  box.append(det);
+    </div>
+    <div class="pcard-body"><h4>SGV by start</h4><div id="start-chart"></div>
+      <p class="note">Each bar is one start, in order. Above 0 is better than average; dashed lines mark the SGV W (${dec2(d.wCut)}) and SGV L (+${d.lCut.toFixed(2)}) cut-offs. Hover a bar for the line.</p>
+      <details class="log"><summary>Game log · ${p.g.length} starts</summary><div class="table-wrap"><table class="stats"><thead><tr>
+        <th class="l">Date</th><th class="l">Opp</th><th>IP</th><th>ER</th><th>SGV</th><th>SGV Dec</th><th>Real Dec</th><th class="hide-xs">Team</th>
+        </tr></thead><tbody>${p.g.map(([date, opp, ha, outs, er, sgv, dec, act, res]) => `<tr><td class="l">${date}</td>
+        <td class="l">${ha === "H" ? "vs" : "@"} ${esc(opp)}</td><td>${ipText(outs)}</td><td>${er}</td><td>${dec2(sgv)}</td>
+        <td><span class="dec dec-${dec}">${dec}</span></td><td>${act}</td><td class="hide-xs">${res}</td></tr>`).join("")}
+        </tbody></table></div></details>
+    </div></div>`;
+  const holder = document.getElementById("start-chart");
+  holder.append(startChart(p, d, Math.round(holder.clientWidth)));
 }
-let resizeTimer;
-addEventListener("resize", () => {
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => render(current), 120);
+
+/* ---------- season ---------- */
+function renderSeason(season) {
+  current = season;
+  const d = seasonData();
+  document.querySelectorAll("#seasons button").forEach((b) =>
+    b.setAttribute("aria-selected", String(+b.dataset.season === season)));
+  document.getElementById("band").textContent = d.band;
+  document.getElementById("qual").textContent = `${d.season} · ${d.qualified} qualified starters, min. ${d.qualifier} GS`;
+  renderScoreboard(d);
+  renderLeaders(d);
+  const vals = [...d.hardLuck, ...d.fortunate].flatMap((r) => [net(r.act), net(r.sgv)]);
+  const lo = Math.min(-5, Math.floor(Math.min(...vals, 0) / 5) * 5), hi = Math.max(5, Math.ceil(Math.max(...vals, 0) / 5) * 5);
+  renderSwing("hard-luck-table", d.hardLuck, lo, hi, "var(--win)");
+  renderSwing("fortunate-table", d.fortunate, lo, hi, "var(--loss)");
+  const blend = d.currentWeight < 1
+    ? `Early season: league averages are ${Math.round(d.currentWeight * 100)}% ${season} and ` +
+      `${Math.round((1 - d.currentWeight) * 100)}% ${season - 1} until ${season} has enough games. ` : "";
+  document.getElementById("foot").textContent = blend +
+    `${season}: SGV W if SGV < ${dec2(d.wCut)}, SGV L if SGV > +${d.lCut.toFixed(2)}, SGV ND in between ` +
+    `(team win probability ${d.band}). Thresholds are fixed for the season, calibrated on ${d.calibratedOn}. ` +
+    `League bullpen RA9 ${d.ra9.toFixed(2)}, ${d.rpg.toFixed(2)} runs per team game.`;
+  renderLookup();
+  try { localStorage.setItem("sgv-season", season); } catch (e) {}
+}
+
+const tabs = document.getElementById("seasons");
+[...DATA].reverse().forEach((d) => {
+  const b = document.createElement("button");
+  b.type = "button"; b.setAttribute("role", "tab"); b.textContent = d.season; b.dataset.season = d.season;
+  b.addEventListener("click", () => renderSeason(d.season));
+  tabs.append(b);
 });
+document.getElementById("through").textContent = "Through " +
+  new Date(META.through + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+let start = DATA[DATA.length - 1].season;
 try { const s = +localStorage.getItem("sgv-season"); if (DATA.some((d) => d.season === s)) start = s; } catch (e) {}
 // A shared lookup link: #pitcher=<name>&season=<year>
 const hash = new URLSearchParams(location.hash.slice(1));
@@ -556,7 +684,10 @@ if (hash.get("pitcher")) {
     || DATA.flatMap((d) => d.players).find((p) => norm(p.n) === want);
   if (hit) { selected = hit.id; searchBox.value = hit.n; }
 }
-render(start);
+renderSeason(start);
+if (hash.get("pitcher")) document.getElementById("lookup").scrollIntoView();
+let resizeTimer;
+addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => renderSeason(current), 150); });
 </script>
 </body>
 </html>
