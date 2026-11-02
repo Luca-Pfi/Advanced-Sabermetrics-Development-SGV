@@ -1,5 +1,5 @@
 """Offline test of sgv.py with a fake MLB Stats API."""
-import shutil, sys, tempfile
+import csv, shutil, sys, tempfile
 from pathlib import Path
 import pandas as pd
 
@@ -71,8 +71,13 @@ def fake_get_json(path, params=None, retries=4):
 
 sgv.get_json = fake_get_json
 
-# Wikimedia, offline: pitcher 10 has a photo, the others have none.
-sgv.PHOTOS_FILE = tmp / "player_photos.json"
+# Photos, offline: Wikimedia has pitcher 10; Openverse has a candidate for pitcher 20 (Pad Ace).
+import photos as ph
+for attr, fname in (("PHOTOS_FILE", "player_photos.json"), ("REVIEW_FILE", "photo_review.csv"),
+                    ("REVIEW_PAGE", "photo_review.html"), ("CROPS_FILE", "photo_crops.csv"),
+                    ("SHEETS_DIR", "photo_check"), ("IMAGE_CACHE", "photo_cache")):
+    setattr(ph, attr, tmp / fname)
+ph.time.sleep = lambda s: None
 wiki_calls = []
 def fake_wiki_post(url, data):
     wiki_calls.append("sparql")
@@ -80,16 +85,31 @@ def fake_wiki_post(url, data):
     return {"results": {"bindings": [{"id": {"value": "10"},
             "image": {"value": "http://commons.wikimedia.org/wiki/Special:FilePath/Rocky%20Starter%202024.jpg"}}]}}
 def fake_wiki_get(url, params):
+    if url == ph.OPENVERSE_API:
+        wiki_calls.append("openverse")
+        if params["q"] != "Pad Ace":
+            return {"results": []}
+        return {"results": [
+            {"title": "Pad Ace pitching in San Diego", "tags": [], "creator": "Bo",
+             "url": "https://live.staticflickr.com/65535/123_abc_b.jpg", "license": "by", "license_version": "2.0",
+             "foreign_landing_url": "https://www.flickr.com/photos/bo/123"},
+            {"title": "Ballpark at night", "tags": [{"name": "baseball"}], "creator": "Cy",
+             "url": "https://live.staticflickr.com/65535/456_def_b.jpg", "license": "by-sa", "license_version": "2.0",
+             "foreign_landing_url": "https://www.flickr.com/photos/cy/456"}]}
     wiki_calls.append("commons")
-    assert params["titles"] == "File:Rocky Starter 2024.jpg"
+    assert params["titles"] == "File:Rocky Starter 2024.jpg" and params["iiurlwidth"] == ph.THUMB_WIDTH
     return {"query": {"normalized": [{"from": "File:Rocky Starter 2024.jpg", "to": "File:Rocky Starter 2024.jpg"}],
             "pages": {"1": {"title": "File:Rocky Starter 2024.jpg", "imageinfo": [{
-                "thumburl": "https://upload.wikimedia.org/thumb/rocky.jpg/240px-rocky.jpg",
+                "thumburl": "https://upload.wikimedia.org/thumb/rocky.jpg/500px-rocky.jpg",
                 "url": "https://upload.wikimedia.org/rocky.jpg",
                 "descriptionurl": "https://commons.wikimedia.org/wiki/File:Rocky_Starter_2024.jpg",
                 "extmetadata": {"Artist": {"value": '<a href="//commons.wikimedia.org/wiki/User:Ann">Ann &amp; Co</a>'},
                                 "LicenseShortName": {"value": "CC BY-SA 4.0"}}}]}}}}
-sgv._wiki_post, sgv._wiki_get = fake_wiki_post, fake_wiki_get
+def fake_download(url):   # every test photo: 200 x 300 grey JPEG
+    import cv2, numpy as np
+    return cv2.imencode(".jpg", np.full((300, 200, 3), 128, np.uint8))[1].tobytes()
+ph._wiki_post, ph._wiki_get, ph._download = fake_wiki_post, fake_wiki_get, fake_download
+ph.detect_face = lambda img: (80, 40, 120, 90)   # a 40 x 50 face near the top of every test photo
 
 # 1st run: no park factors -> template created, returns False
 assert sgv.run([2025, 2026], 0.40, 3) is False
@@ -199,23 +219,55 @@ saved = dict(th[2027])
 th2 = sgv.season_thresholds(fake + [{"season": 2027, "SGV": 5.0, "team_result": "W"}] * 500, 0.35)
 assert th2[2027]["sgv_w_below"] == saved["sgv_w_below"] and th2[2027]["nd_band"] == 0.40  # frozen
 
-# player photos: matched through Wikidata, credited, cached; missing ones retried after 30 days
-photos = json.loads(sgv.PHOTOS_FILE.read_text())
-assert photos["10"]["img"].endswith("240px-rocky.jpg") and photos["10"]["artist"] == "Ann & Co"
-assert photos["10"]["license"] == "CC BY-SA 4.0" and photos["20"]["none"] is True
-assert data[0]["players"] and json.loads(re.search(r"const META = (.*);\n", report).group(1))["photos"] == {
-    "10": [photos["10"]["img"], photos["10"]["page"], "Ann & Co", "CC BY-SA 4.0"]}
+# player photos: matched through Wikidata, credited, framed around the face, cached
+photos = json.loads(ph.PHOTOS_FILE.read_text())
+assert photos["10"]["img"].endswith("500px-rocky.jpg") and photos["10"]["artist"] == "Ann & Co"
+assert photos["10"]["license"] == "CC BY-SA 4.0" and photos["10"]["via"] == "Wikimedia Commons"
+assert photos["10"]["face"] == "auto" and photos["10"]["crop"] == ph.face_crop(200, 300, (80, 40, 120, 90))
+assert photos["20"]["none"] is True
+meta = json.loads(re.search(r"const META = (.*);\n", report).group(1))
+assert meta["photos"] == {"10": [photos["10"]["img"], photos["10"]["page"], "Ann & Co", "CC BY-SA 4.0",
+                                 "Wikimedia Commons", photos["10"]["crop"]]}
+# crop maths: 2.6 x the face, a little below its centre, kept inside the image
+assert ph.face_crop(200, 300, (80, 40, 120, 90)) == ph.square_crop(200, 300, 100, 65 + 0.12 * 50, 130)
+assert ph.square_crop(400, 300, 390, 10, 500) == [0.25, 0.0, 0.75, 1.0]
+assert ph.face_crop(400, 300, None) == [0.125, 0.0, 0.75, 1.0]          # no face: top square
+
+# Openverse candidates: name-matched, credited, 640 px Flickr size, listed for review, not published
+review = list(csv.DictReader(ph.REVIEW_FILE.open()))
+pad = [r for r in review if r["mlb_id"] == "20"]
+assert len(pad) == 1 and pad[0]["option"] == "1" and pad[0]["author"] == "Bo" and pad[0]["license"] == "CC BY 2.0"
+assert pad[0]["image_url"].endswith("123_abc_z.jpg") and pad[0]["face"] == "yes" and pad[0]["approve"] == ""
+assert {r["mlb_id"] for r in review if r["option"] == "0"} == {"30", "40"}   # searched, nothing found
+assert "Pad Ace" in ph.REVIEW_PAGE.read_text() and "Ballpark at night" not in ph.REVIEW_PAGE.read_text()
+assert (ph.SHEETS_DIR / "crops_01.png").exists() and (ph.SHEETS_DIR / "review_01.png").exists()
+assert "20" not in meta["photos"]
+
+# approving option 1 publishes it, framed and credited to its author
+players = {"10": ("Rocky Starter", "COL"), "20": ("Pad Ace", "SD"), "30": ("Dodger Bulk", "LAD"), "40": ("Cub Ace", "CHC")}
+pad[0]["approve"] = "yes"
+with ph.REVIEW_FILE.open("w", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=ph.REVIEW_COLUMNS); w.writeheader(); w.writerows(review)
+table = ph.refresh(players)
+assert table["20"]["via"] == "Openverse" and table["20"]["artist"] == "Bo" and table["20"]["crop"]
+
+# a hand fix in photo_crops.csv wins over the detector
+ph.CROPS_FILE.write_text("mlb_id,name,cx,cy,size\n10,Rocky Starter,0.5,0.5,0.5\n")
+table = ph.refresh(players)
+assert table["10"]["face"] == "manual" and table["10"]["crop"] == ph.square_crop(200, 300, 100, 150, 100)
+
+# already-checked pitchers aren't looked up again until 30 days have passed
 calls = wiki_calls.count("sparql")
-sgv.update_player_photos([10, 20, 30, 40])           # all checked recently: no new lookup
+ph.refresh(players)
 assert wiki_calls.count("sparql") == calls
-photos["20"]["checked"] = "2020-01-01"; sgv.PHOTOS_FILE.write_text(json.dumps(photos))
-sgv.update_player_photos([10, 20])                   # stale "no photo" entry is looked up again
+table["30"]["checked"] = "2020-01-01"; ph.PHOTOS_FILE.write_text(json.dumps(table))
+ph.refresh(players)
 assert wiki_calls.count("sparql") == calls + 1
 def offline(*a, **k):
-    raise sgv.requests.ConnectionError("no network")
-sgv._wiki_post = offline
-photos["20"]["checked"] = "2020-01-01"; sgv.PHOTOS_FILE.write_text(json.dumps(photos))
-assert sgv.update_player_photos([10, 20])["10"]["img"]   # Wikimedia down: keep what we have, no crash
+    raise ph.requests.ConnectionError("no network")
+ph._wiki_post = ph._wiki_get = offline
+table["30"]["checked"] = "2020-01-01"; ph.PHOTOS_FILE.write_text(json.dumps(table))
+assert ph.refresh(players)["10"]["img"]                  # Wikimedia down: keep what we have, no crash
 
 shutil.rmtree(tmp)
 print("ALL CHECKS PASSED")

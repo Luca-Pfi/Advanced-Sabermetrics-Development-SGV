@@ -122,7 +122,13 @@ The **player search** covers every starter of the selected season, qualified or 
 - a **5-start rolling SGV** chart with the league average and the W/L cut-offs, plus a strip of each start's SGV decision;
 - the full **game log**.
 
-**Player photos** come from Wikimedia Commons. Each pitcher's MLB ID is matched to their Wikipedia/Wikidata entry (Wikidata property P3541, "MLB.com player ID"), so there's no guessing by name. The photo's author and licence are credited under the profile card. Photos are cached in `player_photos.json`: new pitchers are looked up on the next run, and pitchers without a photo are checked again after 30 days. They keep their initials meanwhile, or if Wikimedia can't be reached.
+**Player photos** (`photos.py`, run by the daily update):
+
+1. **Wikipedia / Wikimedia Commons:** each pitcher's MLB ID is matched to their Wikidata entry (property P3541, "MLB.com player ID"), so there's no guessing by name. Pitchers without a photo are checked again after 30 days.
+2. **Face framing:** OpenCV's face detector (model in `models/`) finds the face in every photo, and the round avatar is cropped around it with head and shoulders in frame. If a crop looks wrong, add a row to `photo_crops.csv` (`mlb_id, name, cx, cy, size`: centre and width as fractions of the image) and it overrides the detector. Contact sheets of every crop are saved in `docs/photo_check/` for checking by eye.
+3. **Missing photos:** for starters with no Wikipedia photo, Openverse (Flickr and other sources) is searched for freely licensed photos (CC0, public domain, CC BY, CC BY-SA). Results are matched by name only, so they go to `photo_review.csv` and a review page, [photo_review.html](https://luca-pfi.github.io/Advanced-Sabermetrics-Development-SGV/photo_review.html), and **nothing is published until you approve it**. To approve one, put `yes` in the `approve` column of that option's row and commit; the next update frames it and adds it to the page.
+
+Every photo is credited under the profile card with its author, licence and source. If a photo can't be loaded, or a service is unreachable, the card shows the pitcher's initials.
 
 A lookup can be shared as a link, e.g. `…/Advanced-Sabermetrics-Development-SGV/#pitcher=Paul%20Skenes&season=2025`.
 
@@ -210,7 +216,12 @@ The tests run the whole pipeline offline on a small simulated season, without co
 | `sgv_report.py` | HTML leaderboards |
 | `park_factors.csv` | Park factors per season and ballpark |
 | `nd_thresholds.csv` | ND thresholds per season (fixed once calibrated) |
-| `player_photos.json` | Player photos from Wikimedia Commons, with author and licence (cached) |
+| `photos.py` | Player photos: Wikimedia lookup, face framing, Openverse candidates, contact sheets |
+| `player_photos.json` | Player photos with author, licence, source and face crop (cached) |
+| `photo_review.csv`, `photo_review.html` | Openverse photo candidates waiting for approval |
+| `photo_crops.csv` | Hand fixes for photo crops |
+| `models/` | OpenCV face-detection model (res10 SSD, from the OpenCV project) |
+| `docs/photo_check/` | Contact sheets of every photo crop and candidate |
 | `test_sgv.py` | Offline tests |
 | `.github/workflows/sgv-daily.yml` | Daily update and GitHub Pages publication |
 | `sgv_records.xlsx`, `sgv_report.html` | Latest results (updated daily during the season) |

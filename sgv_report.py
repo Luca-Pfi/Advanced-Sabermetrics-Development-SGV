@@ -98,9 +98,11 @@ def write_report(df, league_rows, thresholds, path, photos=None):
         })
         data.append(board)
     meta = {"through": str(df["date"].max())}   # last game in the data, not the run time
-    # Player photos for the starters on the page: id -> [thumbnail, file page, author, licence]
+    # Player photos for the starters on the page:
+    # id -> [image, source page, author, licence, source, face crop [left, top, width, height] or null]
     ids = {str(i) for i in df["pitcher_id"].unique()}
-    meta["photos"] = {pid: [p["img"], p["page"], p["artist"], p["license"]]
+    meta["photos"] = {pid: [p["img"], p["page"], p["artist"], p["license"], p.get("via", "Wikimedia Commons"),
+                            p.get("crop")]
                       for pid, p in sorted((photos or {}).items()) if pid in ids and p.get("img")}
     page = TEMPLATE.replace("__DATA__", json.dumps(data, ensure_ascii=False, separators=(",", ":")))
     page = page.replace("__META__", json.dumps(meta))
@@ -256,7 +258,9 @@ table.t { width: 100%; border-collapse: collapse; font-size: 15px; }
 .search li[aria-selected="true"], .search li:hover { background: var(--row); }
 .pgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .card-top { text-align: center; }
-.avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; object-position: 50% 20%; display: block; }
+.avatar { position: relative; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; display: block; }
+.avatar img.framed { position: absolute; height: auto; max-width: none; object-fit: fill; }
 .credit { font-size: 12px; color: var(--ink-4); margin: 6px 0 0; }
 .credit a { color: var(--ink-3); text-decoration: underline; }
 .avatar { width: 92px; height: 92px; margin: 4px auto 8px; border-radius: 50%; border: 3px solid var(--border); overflow: hidden;
@@ -587,7 +591,18 @@ function choose(p) {
   history.replaceState(null, "", `#pitcher=${encodeURIComponent(p.n)}&season=${current}`);
   renderLookup();
 }
-searchBox.addEventListener("input", showMatches);
+// Clearing the box (its ✕, or deleting the name) hides the player page again.
+function clearPlayer() {
+  if (selected === null) return;
+  selected = null;
+  history.replaceState(null, "", location.pathname + location.search);
+  renderLookup();
+}
+searchBox.addEventListener("input", () => {
+  if (!searchBox.value.trim()) clearPlayer();
+  showMatches();
+});
+searchBox.addEventListener("search", () => { if (!searchBox.value.trim()) clearPlayer(); });
 searchBox.addEventListener("keydown", (e) => {
   if (e.key === "ArrowDown" || e.key === "ArrowUp") {
     if (!matches.length) return;
@@ -631,11 +646,14 @@ function profileCard(p, d) {
   const initials = p.n.split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("");
   const rank = p.rank ? `SGV rank #${p.rank} of ${d.qualified} qualified` : `Not qualified in ${d.season} (min. ${d.qualifier} GS)`;
   const ph = META.photos[p.id];
+  // The face crop [left, top, width, height] (fractions of the image) is scaled up to fill the circle.
+  const crop = ph && ph[5];
+  const frame = crop ? ` class="framed" style="width:${100 / crop[2]}%;left:${-100 * crop[0] / crop[2]}%;top:${-100 * crop[1] / crop[3]}%"` : "";
   const avatar = ph
-    ? `<div class="avatar" data-initials="${esc(initials)}"><img src="${esc(ph[0])}" alt="${esc(p.n)}" loading="lazy" referrerpolicy="no-referrer"></div>`
+    ? `<div class="avatar" data-initials="${esc(initials)}"><img src="${esc(ph[0])}" alt="${esc(p.n)}"${frame} loading="lazy" referrerpolicy="no-referrer"></div>`
     : `<div class="avatar" aria-hidden="true">${esc(initials)}</div>`;
   const credit = ph
-    ? `<p class="credit">Photo: <a href="${esc(ph[1])}" target="_blank" rel="noopener">${esc(ph[2])}</a> · ${esc(ph[3])} · Wikimedia Commons</p>` : "";
+    ? `<p class="credit">Photo: <a href="${esc(ph[1])}" target="_blank" rel="noopener">${esc(ph[2])}</a> · ${esc(ph[3])} · ${esc(ph[4])}</p>` : "";
   return `<div class="panel card"><div class="card-top">
       ${avatar}
       <h3 class="pname">${esc(p.n)}</h3>
