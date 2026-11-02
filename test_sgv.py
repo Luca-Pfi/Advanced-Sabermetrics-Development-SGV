@@ -84,7 +84,7 @@ def fake_wiki_post(url, data):
     assert "wdt:P3541" in data["query"]
     return {"results": {"bindings": [{"id": {"value": "10"},
             "image": {"value": "http://commons.wikimedia.org/wiki/Special:FilePath/Rocky%20Starter%202024.jpg"}}]}}
-def fake_wiki_get(url, params):
+def fake_wiki_get(url, params, timeout=60):
     if url == ph.OPENVERSE_API:
         wiki_calls.append("openverse")
         if params["q"] != "Pad Ace":
@@ -255,6 +255,27 @@ assert table["20"]["via"] == "Openverse" and table["20"]["artist"] == "Bo" and t
 ph.CROPS_FILE.write_text("mlb_id,name,cx,cy,size\n10,Rocky Starter,0.5,0.5,0.5\n")
 table = ph.refresh(players)
 assert table["10"]["face"] == "manual" and table["10"]["crop"] == ph.square_crop(200, 300, 100, 150, 100)
+
+# "skip" rejects a photo with no usable face: off the page, initials, searched on Openverse instead
+ph.CROPS_FILE.write_text("mlb_id,name,cx,cy,size\n10,Rocky Starter,skip,,\n")
+table = ph.refresh(players)
+assert table["10"]["rejected"] is True
+real_refresh = ph.refresh
+ph.refresh = lambda players: ph.load_photos()        # sgv.photos is the same module
+assert sgv.run([2025, 2026], 0.40, 3) is True
+ph.refresh = real_refresh
+meta = json.loads(re.search(r"const META = (.*);\n", sgv.REPORT_FILE.read_text()).group(1))
+assert "10" not in meta["photos"] and "20" in meta["photos"]
+ph.CROPS_FILE.write_text("mlb_id,name,cx,cy,size\n")
+table = ph.refresh(players)
+assert "rejected" not in table["10"] and table["10"]["face"] == "auto"
+
+# inspection sheets for listed photos
+import os
+os.environ["SGV_INSPECT"] = "10,20"
+ph.refresh(players)
+assert (ph.SHEETS_DIR / "inspect_01.png").exists()
+del os.environ["SGV_INSPECT"]
 
 # already-checked pitchers aren't looked up again until 30 days have passed
 calls = wiki_calls.count("sparql")

@@ -103,7 +103,8 @@ def write_report(df, league_rows, thresholds, path, photos=None):
     ids = {str(i) for i in df["pitcher_id"].unique()}
     meta["photos"] = {pid: [p["img"], p["page"], p["artist"], p["license"], p.get("via", "Wikimedia Commons"),
                             p.get("crop")]
-                      for pid, p in sorted((photos or {}).items()) if pid in ids and p.get("img")}
+                      for pid, p in sorted((photos or {}).items())
+                      if pid in ids and p.get("img") and not p.get("rejected")}
     page = TEMPLATE.replace("__DATA__", json.dumps(data, ensure_ascii=False, separators=(",", ":")))
     page = page.replace("__META__", json.dumps(meta))
     path.write_text(page, encoding="utf-8")

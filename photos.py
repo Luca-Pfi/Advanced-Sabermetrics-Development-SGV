@@ -23,6 +23,7 @@ import hashlib
 import html
 import io
 import json
+import os
 import re
 import time
 import unicodedata
@@ -63,8 +64,8 @@ def _wiki_post(url, data):
     return r.json()
 
 
-def _wiki_get(url, params):
-    r = requests.get(url, params=params, headers=HEADERS, timeout=60)
+def _wiki_get(url, params, timeout=60):
+    r = requests.get(url, params=params, headers=HEADERS, timeout=timeout)
     r.raise_for_status()
     return r.json()
 
@@ -170,7 +171,7 @@ def _approved(row):
 def openverse_search(name):
     """Freely licensed photographs whose title or tags carry the pitcher's first and last name."""
     data = _wiki_get(OPENVERSE_API, {"q": name, "license": "cc0,pdm,by,by-sa", "category": "photograph",
-                                     "page_size": 20, "mature": "false"})
+                                     "page_size": 20, "mature": "false"}, timeout=90)
     parts = [p for p in _norm(name).replace(".", " ").split() if len(p) > 1]
     first, last = parts[0], parts[-1]
     hits = []
@@ -192,20 +193,27 @@ def search_candidates(photos, players, today, budget):
     searched = {}
     for r in rows:
         searched[r["mlb_id"]] = max(searched.get(r["mlb_id"], ""), r.get("searched") or "")
-    missing = [pid for pid in players if photos.get(pid, {}).get("none")
+    missing = [pid for pid in players if (photos.get(pid, {}).get("none") or photos.get(pid, {}).get("rejected"))
                and not any(_approved(r) for r in rows if r["mlb_id"] == pid)
                and (pid not in searched
                     or today - pd.Timestamp(searched[pid] or "2000-01-01") > pd.Timedelta(days=RETRY_DAYS))]
-    added = 0
+    added, failures = 0, 0
     for pid in missing[:budget]:
         name, team = players[pid]
         try:
             hits = openverse_search(name)
+            failures = 0
         except requests.HTTPError as e:
             if e.response is not None and e.response.status_code == 429:
                 print("Openverse rate limit reached; the search continues on the next run")
                 break
             raise
+        except (requests.Timeout, requests.ConnectionError):
+            failures += 1          # a slow answer skips this pitcher; three in a row end this run's search
+            if failures >= 3:
+                print("Openverse not answering; the search continues on the next run")
+                break
+            continue
         found = []
         for r in hits:
             url = _sized_flickr(r["url"])
@@ -334,9 +342,16 @@ def face_crop(w, h, box):
 
 
 def manual_crops():
-    """photo_crops.csv: mlb_id, name, cx, cy, size (fractions of image width/height; size of the width)."""
+    """photo_crops.csv: mlb_id, name, cx, cy, size (fractions of image width/height; size of the width).
+
+    cx = "skip" rejects the photo (no usable face): the card keeps the initials and the
+    pitcher is searched on Openverse like one with no photo.
+    """
     out = {}
     for r in _read_csv(CROPS_FILE):
+        if (r.get("cx") or "").strip().lower() == "skip":
+            out[r["mlb_id"]] = "skip"
+            continue
         try:
             out[r["mlb_id"]] = tuple(float(str(r[k]).replace(",", ".")) for k in ("cx", "cy", "size"))
         except (KeyError, ValueError):
@@ -357,6 +372,12 @@ def frame_photos(photos):
         if not p.get("img"):
             continue
         fix = fixes.get(pid)
+        if fix == "skip":
+            framed += not p.get("rejected")
+            p["rejected"] = True
+            continue
+        if p.pop("rejected", None):
+            framed += 1
         if fix is None and p.get("crop") and p.get("face") != "manual":
             continue
         if fix is not None and p.get("face") == "manual" and p.get("fix") == list(fix):
@@ -439,6 +460,48 @@ def contact_sheets(photos, players):
             d.text((x + side // 2, y + side + 6), name[:22], fill="black", font=font, anchor="ma")
             d.text((x + side // 2, y + side + 24), f"{pid} · {p.get('face', '?')}", fill="#666666", font=small, anchor="ma")
         sheet.save(SHEETS_DIR / f"crops_{page // (cols * rows_) + 1:02d}.png", optimize=True)
+
+
+def inspect_sheets(photos, players, ids):
+    """docs/photo_check/inspect_NN.png: full photos with a 10% grid, the detected face (red) and
+    the crop (cyan), to place hand fixes in photo_crops.csv."""
+    import cv2
+    from PIL import Image, ImageDraw
+    for old in SHEETS_DIR.glob("inspect_*.png"):
+        old.unlink()
+    ids = [i for i in ids if photos.get(i, {}).get("img")]
+    cell_w, cell_h, per_page = 560, 470, 6
+    font, small = _font(15), _font(11)
+    for page in range(0, len(ids), per_page):
+        chunk = ids[page:page + per_page]
+        sheet = Image.new("RGB", (2 * cell_w, ((len(chunk) + 1) // 2) * cell_h), "white")
+        d = ImageDraw.Draw(sheet)
+        for k, pid in enumerate(chunk):
+            p = photos[pid]
+            ox, oy = (k % 2) * cell_w + 10, (k // 2) * cell_h + 8
+            d.text((ox, oy), f"{players.get(pid, ('?', ''))[0]} · {pid} · {p.get('face', '?')}", fill="black", font=font)
+            try:
+                img = load_image(p["img"])
+            except (requests.RequestException, ValueError):
+                continue
+            h, w = img.shape[:2]
+            scale = min((cell_w - 40) / w, (cell_h - 50) / h)
+            pic = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)).resize((int(w * scale), int(h * scale)))
+            px, py = ox + 22, oy + 26
+            sheet.paste(pic, (px, py))
+            W, H = pic.size
+            for t in range(1, 10):
+                d.line((px + W * t / 10, py, px + W * t / 10, py + H), fill=(255, 255, 0), width=1)
+                d.line((px, py + H * t / 10, px + W, py + H * t / 10), fill=(255, 255, 0), width=1)
+                d.text((px + W * t / 10, py - 1), f".{t}", fill="#555555", font=small, anchor="mb")
+                d.text((px - 3, py + H * t / 10), f".{t}", fill="#555555", font=small, anchor="rm")
+            box = detect_face(img)
+            if box:
+                d.rectangle([px + box[0] * scale, py + box[1] * scale, px + box[2] * scale, py + box[3] * scale], outline="red", width=2)
+            if p.get("crop"):
+                L, T, CW, CH = p["crop"]
+                d.rectangle([px + L * W, py + T * H, px + (L + CW) * W, py + (T + CH) * H], outline=(0, 200, 255), width=3)
+        sheet.save(SHEETS_DIR / f"inspect_{page // per_page + 1:02d}.png", optimize=True)
 
 
 def review_sheets():
@@ -560,6 +623,14 @@ def refresh(players, search_budget=60):
         try:
             contact_sheets(photos, players)
             review_sheets()
+        except ImportError:
+            pass
+    # Photos to look at closely: no face found, plus any listed in SGV_INSPECT (comma-separated MLB ids).
+    extra = [i.strip() for i in os.environ.get("SGV_INSPECT", "").split(",") if i.strip()]
+    look = sorted({pid for pid, p in photos.items() if p.get("face") == "none" and not p.get("rejected")} | set(extra))
+    if (changed or extra) and not _offline:
+        try:
+            inspect_sheets(photos, players, look)
         except ImportError:
             pass
         review_page()

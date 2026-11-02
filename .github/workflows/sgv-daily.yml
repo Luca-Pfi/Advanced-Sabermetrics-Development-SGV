@@ -7,6 +7,11 @@ on:
     # 08:47 UTC every day from March to October, after the previous night's games are final.
     - cron: "47 8 * 3-10 *"
   workflow_dispatch:   # "Run workflow" button in the Actions tab
+    inputs:
+      inspect:
+        description: "MLB ids of photos to draw on inspection sheets (comma-separated, optional)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -40,6 +45,8 @@ jobs:
           restore-keys: boxscores-
 
       - name: Compute SGV (2025 to current season)
+        env:
+          SGV_INSPECT: ${{ inputs.inspect }}
         run: python sgv.py --no-open --seasons $(seq 2025 "$(date -u +%Y)")
 
       # The Excel file changes on every save (timestamps), so commit only when the
