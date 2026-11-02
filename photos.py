@@ -50,6 +50,7 @@ HEADERS = {"User-Agent": "SGV-leaderboards/1.0 "
 THUMB_WIDTH = 500         # px; enough for a sharp face crop in a 92 px (184 px on retina) circle
 RETRY_DAYS = 30           # pitchers without a photo are searched again after this many days
 CANDIDATES_PER_PLAYER = 3
+SEARCH_SECONDS = 240      # time allowed per run for the Openverse search; it resumes on the next run
 FACE_PADDING = 2.6        # crop side = this × the face box, so head and shoulders fit the circle
 VERSION = 2               # bump to refresh every Wikimedia entry (thumbnail size, fields)
 
@@ -71,7 +72,7 @@ def _wiki_get(url, params, timeout=60):
 
 
 def _download(url):
-    r = requests.get(url, headers=HEADERS, timeout=60)
+    r = requests.get(url, headers=HEADERS, timeout=30)
     r.raise_for_status()
     return r.content
 
@@ -187,8 +188,20 @@ def _sized_flickr(url):
     return re.sub(r"(staticflickr\.com/.+_[0-9a-f]+)_[bchk]\.jpg$", r"\1_z.jpg", url)
 
 
-def search_candidates(photos, players, today, budget):
-    """Search Openverse for starters with no photo. Returns rows added; stops when the budget is spent."""
+def _save_review(rows):
+    rows.sort(key=lambda r: (r["name"], int(r["option"] or 0)))
+    with REVIEW_FILE.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=REVIEW_COLUMNS, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+
+
+def search_candidates(photos, players, today, budget, seconds=SEARCH_SECONDS):
+    """Search Openverse for starters with no photo, at most `budget` pitchers or `seconds` per run.
+
+    Each pitcher's results are saved as soon as they are found, so the next run resumes where this one stopped.
+    """
+    deadline = time.monotonic() + seconds
     rows = _read_csv(REVIEW_FILE)
     searched = {}
     for r in rows:
@@ -199,6 +212,9 @@ def search_candidates(photos, players, today, budget):
                     or today - pd.Timestamp(searched[pid] or "2000-01-01") > pd.Timedelta(days=RETRY_DAYS))]
     added, failures = 0, 0
     for pid in missing[:budget]:
+        if time.monotonic() > deadline:
+            print(f"Photo candidates: time limit reached, {len(missing) - added} starters left for the next runs")
+            break
         name, team = players[pid]
         try:
             try:
@@ -256,13 +272,8 @@ def search_candidates(photos, players, today, budget):
                          "title": _plain(r.get("title"))[:120], "landing_url": r.get("foreign_landing_url", ""),
                          "image_url": f["url"], "face": "yes" if f["face"] else "no", "searched": stamp})
         added += 1
+        _save_review(rows)
         time.sleep(1.0)   # be polite to the anonymous API
-    if added:
-        rows.sort(key=lambda r: (r["name"], int(r["option"] or 0)))
-        with REVIEW_FILE.open("w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=REVIEW_COLUMNS, extrasaction="ignore")
-            w.writeheader()
-            w.writerows(rows)
     return added
 
 
