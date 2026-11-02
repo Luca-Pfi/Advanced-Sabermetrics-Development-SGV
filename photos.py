@@ -406,10 +406,14 @@ def detect_face(img):
     best = None
     # The model is trained at 300x300; a second pass near native size finds the small faces of action shots.
     scale = 640 / max(h, w)
-    for size in ((300, 300), (max(64, int(w * scale) // 32 * 32), max(64, int(h * scale) // 32 * 32))):
-        blob = cv2.dnn.blobFromImage(cv2.resize(img, size), 1.0, size, (104.0, 177.0, 123.0))
-        _net.setInput(blob)
-        det = _net.forward()
+    native = (min(1024, max(192, int(w * scale) // 32 * 32)), min(1024, max(192, int(h * scale) // 32 * 32)))
+    for size in ((300, 300), native):
+        try:
+            blob = cv2.dnn.blobFromImage(cv2.resize(img, size), 1.0, size, (104.0, 177.0, 123.0))
+            _net.setInput(blob)
+            det = _net.forward()
+        except cv2.error:
+            continue          # an unusual image shape can trip one pass; the other still runs
         for i in range(det.shape[2]):
             conf = float(det[0, 0, i, 2])
             if conf < 0.55:
