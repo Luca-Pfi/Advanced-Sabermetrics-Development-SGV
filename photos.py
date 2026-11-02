@@ -50,7 +50,7 @@ HEADERS = {"User-Agent": "SGV-leaderboards/1.0 "
 THUMB_WIDTH = 500         # px; enough for a sharp face crop in a 92 px (184 px on retina) circle
 RETRY_DAYS = 30           # pitchers without a photo are searched again after this many days
 CANDIDATES_PER_PLAYER = 3
-SEARCH_SECONDS = 240      # time allowed per run for the Openverse search; it resumes on the next run
+SEARCH_SECONDS = 360      # time allowed per run for the candidate search; it resumes on the next run
 FACE_PADDING = 2.6        # crop side = this × the face box, so head and shoulders fit the circle
 VERSION = 2               # bump to refresh every Wikimedia entry (thumbnail size, fields)
 
@@ -196,10 +196,77 @@ def _save_review(rows):
         w.writerows(rows)
 
 
-def search_candidates(photos, players, today, budget, seconds=SEARCH_SECONDS):
-    """Search Openverse for starters with no photo, at most `budget` pitchers or `seconds` per run.
+def wikidata_categories(mlb_ids):
+    """MLB player id -> Commons category (Wikidata P373), for players whose entry has no photo."""
+    found = {}
+    for i in range(0, len(mlb_ids), 200):
+        values = " ".join(f'"{x}"' for x in mlb_ids[i:i + 200])
+        query = (f"SELECT ?id ?cat WHERE {{ VALUES ?id {{ {values} }} "
+                 f"?item wdt:P3541 ?id . ?item wdt:P373 ?cat . }}")
+        for b in _wiki_post(WIKIDATA_SPARQL, {"query": query, "format": "json"})["results"]["bindings"]:
+            found.setdefault(b["id"]["value"], b["cat"]["value"])
+    return found
 
-    Each pitcher's results are saved as soon as they are found, so the next run resumes where this one stopped.
+
+def commons_category_candidates(category):
+    """Photos with a face from the player's own Commons category (matched by MLB ID, not by name)."""
+    data = _wiki_get(COMMONS_API, {"action": "query", "format": "json", "list": "categorymembers",
+                                   "cmtitle": f"Category:{category}", "cmtype": "file", "cmlimit": 30})
+    files = [m["title"].split(":", 1)[1] for m in data.get("query", {}).get("categorymembers", [])
+             if m["title"].lower().endswith((".jpg", ".jpeg", ".png"))][:8]
+    info = commons_info(files) if files else {}
+    out = []
+    for f in files:
+        i = info.get(f)
+        if not i:
+            continue
+        try:
+            img = load_image(i["img"])
+        except (requests.RequestException, ValueError):
+            continue
+        if detect_face(img) is None:
+            continue
+        out.append({"author": i["artist"], "license": i["license"], "landing_url": i["page"], "image_url": i["img"],
+                    "title": f"{f} (Commons category, matched by MLB ID)"[:160], "face": "yes"})
+        if len(out) >= CANDIDATES_PER_PLAYER:
+            break
+    return out
+
+
+def openverse_candidates(name):
+    """Name-matched freely licensed photos from Openverse (one retry on a slow or failing answer)."""
+    try:
+        hits = openverse_search(name)
+    except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as e:
+        if isinstance(e, requests.HTTPError) and (e.response is None or e.response.status_code < 500):
+            raise
+        time.sleep(5)
+        hits = openverse_search(name)
+    found = []
+    for r in hits:
+        url = _sized_flickr(r["url"])
+        try:
+            img = load_image(url)
+        except (requests.RequestException, ValueError):
+            continue
+        face = detect_face(img) is not None
+        version = f" {r['license_version']}" if r.get("license_version") and r["license"] != "pdm" else ""
+        found.append({"author": _plain(r.get("creator")) or "Unknown author",
+                      "license": LICENSE_NAMES.get(r["license"], r["license"].upper()) + version,
+                      "title": _plain(r.get("title"))[:120], "landing_url": r.get("foreign_landing_url", ""),
+                      "image_url": url, "face": "yes" if face else "no"})
+        if sum(f["face"] == "yes" for f in found) >= CANDIDATES_PER_PLAYER:
+            break
+    found.sort(key=lambda f: f["face"] != "yes")
+    return found[:CANDIDATES_PER_PLAYER]
+
+
+def search_candidates(photos, players, today, budget, seconds=SEARCH_SECONDS):
+    """Find photo candidates for starters with no photo, at most `budget` pitchers or `seconds` per run.
+
+    First the player's own Commons category (linked from Wikidata through the MLB ID, so no name
+    guessing), then Openverse by name for the rest. Each pitcher's results are saved as soon as
+    they are found, so the next run resumes where this one stopped.
     """
     deadline = time.monotonic() + seconds
     rows = _read_csv(REVIEW_FILE)
@@ -209,27 +276,60 @@ def search_candidates(photos, players, today, budget, seconds=SEARCH_SECONDS):
     missing = [pid for pid in players if (photos.get(pid, {}).get("none") or photos.get(pid, {}).get("rejected"))
                and not any(_approved(r) for r in rows if r["mlb_id"] == pid)
                and (pid not in searched
-                    or today - pd.Timestamp(searched[pid] or "2000-01-01") > pd.Timedelta(days=RETRY_DAYS))]
-    added, failures = 0, 0
-    for pid in missing[:budget]:
+                    or today - pd.Timestamp(searched[pid] or "2000-01-01") > pd.Timedelta(days=RETRY_DAYS))][:budget]
+    stamp = today.strftime("%Y-%m-%d")
+    added = 0
+
+    def record(pid, found):
+        nonlocal rows, added
+        name, team = players[pid]
+        rows = [r for r in rows if r["mlb_id"] != pid or _approved(r)]
+        if not found:
+            rows.append({"mlb_id": pid, "name": name, "team": team, "option": "0", "approve": "",
+                         "title": "(no match found)", "searched": stamp})
+        for n, f in enumerate(found, 1):
+            rows.append({"mlb_id": pid, "name": name, "team": team, "option": str(n), "approve": "",
+                         "searched": stamp, **f})
+        added += 1
+        _save_review(rows)
+
+    # 1. Commons categories: fast and matched by ID; up to half of the time.
+    try:
+        categories = wikidata_categories(missing) if missing else {}
+    except (requests.RequestException, ValueError, KeyError) as e:
+        print(f"Commons categories skipped ({e.__class__.__name__})")
+        categories = {}
+    done = set()
+    half = time.monotonic() + seconds / 2
+    for pid in missing:
+        if pid not in categories:
+            continue
+        if time.monotonic() > half:
+            break
+        try:
+            found = commons_category_candidates(categories[pid])
+        except (requests.RequestException, ValueError, KeyError):
+            continue
+        if found:
+            record(pid, found)
+            done.add(pid)
+
+    # 2. Openverse by name for the others, in the time left.
+    failures = 0
+    for pid in missing:
+        if pid in done:
+            continue
         if time.monotonic() > deadline:
             print(f"Photo candidates: time limit reached, {len(missing) - added} starters left for the next runs")
             break
-        name, team = players[pid]
         try:
-            try:
-                hits = openverse_search(name)
-            except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as e:
-                if isinstance(e, requests.HTTPError) and (e.response is None or e.response.status_code < 500):
-                    raise
-                time.sleep(5)                     # Openverse sometimes answers 5xx or slowly: one retry
-                hits = openverse_search(name)
+            found = openverse_candidates(players[pid][0])
             failures = 0
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else "?"
             if isinstance(status, int) and status >= 500:
                 failures += 1                     # server error: skip this pitcher, three in a row end the search
-                print(f"  Openverse error {status} for {name}; skipped this run")
+                print(f"  Openverse error {status} for {players[pid][0]}; skipped this run")
                 if failures >= 3:
                     print("Openverse keeps failing; the search continues on the next run")
                     break
@@ -246,33 +346,7 @@ def search_candidates(photos, players, today, budget, seconds=SEARCH_SECONDS):
                 print("Openverse not answering; the search continues on the next run")
                 break
             continue
-        found = []
-        for r in hits:
-            url = _sized_flickr(r["url"])
-            try:
-                img = load_image(url)
-            except (requests.RequestException, ValueError):
-                continue
-            face = detect_face(img)
-            found.append({"r": r, "url": url, "face": face is not None})
-            if len([f for f in found if f["face"]]) >= CANDIDATES_PER_PLAYER:
-                break
-        found.sort(key=lambda f: not f["face"])
-        rows = [r for r in rows if r["mlb_id"] != pid or _approved(r)]
-        stamp = today.strftime("%Y-%m-%d")
-        if not found:
-            rows.append({"mlb_id": pid, "name": name, "team": team, "option": "0", "approve": "",
-                         "title": "(no match found)", "searched": stamp})
-        for n, f in enumerate(found[:CANDIDATES_PER_PLAYER], 1):
-            r = f["r"]
-            version = f" {r['license_version']}" if r.get("license_version") and r["license"] not in ("pdm",) else ""
-            rows.append({"mlb_id": pid, "name": name, "team": team, "option": str(n), "approve": "",
-                         "author": _plain(r.get("creator")) or "Unknown author",
-                         "license": LICENSE_NAMES.get(r["license"], r["license"].upper()) + version,
-                         "title": _plain(r.get("title"))[:120], "landing_url": r.get("foreign_landing_url", ""),
-                         "image_url": f["url"], "face": "yes" if f["face"] else "no", "searched": stamp})
-        added += 1
-        _save_review(rows)
+        record(pid, found)
         time.sleep(1.0)   # be polite to the anonymous API
     return added
 
@@ -614,7 +688,7 @@ def load_photos():
     return json.loads(PHOTOS_FILE.read_text()) if PHOTOS_FILE.exists() else {}
 
 
-def refresh(players, search_budget=60):
+def refresh(players, search_budget=300):
     """players: {mlb_id: (name, team)} for every starter on the page. Returns the photo table."""
     players = {str(k): v for k, v in players.items()}
     photos = load_photos()
@@ -638,7 +712,7 @@ def refresh(players, search_budget=60):
         try:
             found = search_candidates(photos, players, today, search_budget)
             if found:
-                print(f"Photo candidates: {found} starters searched on Openverse (see photo_review.csv)")
+                print(f"Photo candidates: {found} starters searched (see photo_review.csv)")
         except (requests.RequestException, ValueError, KeyError) as e:
             print(f"Openverse search skipped, not reachable ({e.__class__.__name__})")
         except ImportError:

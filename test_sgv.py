@@ -80,8 +80,11 @@ for attr, fname in (("PHOTOS_FILE", "player_photos.json"), ("REVIEW_FILE", "phot
 ph.time.sleep = lambda s: None
 wiki_calls = []
 def fake_wiki_post(url, data):
-    wiki_calls.append("sparql")
     assert "wdt:P3541" in data["query"]
+    if "wdt:P373" in data["query"]:            # Commons category of pitcher 30 (Dodger Bulk)
+        wiki_calls.append("categories")
+        return {"results": {"bindings": [{"id": {"value": "30"}, "cat": {"value": "Dodger Bulk"}}]}}
+    wiki_calls.append("sparql")
     return {"results": {"bindings": [{"id": {"value": "10"},
             "image": {"value": "http://commons.wikimedia.org/wiki/Special:FilePath/Rocky%20Starter%202024.jpg"}}]}}
 def fake_wiki_get(url, params, timeout=60):
@@ -96,6 +99,14 @@ def fake_wiki_get(url, params, timeout=60):
             {"title": "Ballpark at night", "tags": [{"name": "baseball"}], "creator": "Cy",
              "url": "https://live.staticflickr.com/65535/456_def_b.jpg", "license": "by-sa", "license_version": "2.0",
              "foreign_landing_url": "https://www.flickr.com/photos/cy/456"}]}
+    if params.get("list") == "categorymembers":
+        assert params["cmtitle"] == "Category:Dodger Bulk"
+        return {"query": {"categorymembers": [{"title": "File:Dodger Bulk 2025.jpg"}, {"title": "File:Logo.svg"}]}}
+    if params["titles"] == "File:Dodger Bulk 2025.jpg":
+        return {"query": {"pages": {"2": {"title": "File:Dodger Bulk 2025.jpg", "imageinfo": [{
+            "thumburl": "https://upload.wikimedia.org/thumb/bulk.jpg/500px-bulk.jpg",
+            "descriptionurl": "https://commons.wikimedia.org/wiki/File:Dodger_Bulk_2025.jpg",
+            "extmetadata": {"Artist": {"value": "Dee"}, "LicenseShortName": {"value": "CC BY 4.0"}}}]}}}}
     wiki_calls.append("commons")
     assert params["titles"] == "File:Rocky Starter 2024.jpg" and params["iiurlwidth"] == ph.THUMB_WIDTH
     return {"query": {"normalized": [{"from": "File:Rocky Starter 2024.jpg", "to": "File:Rocky Starter 2024.jpg"}],
@@ -238,7 +249,10 @@ review = list(csv.DictReader(ph.REVIEW_FILE.open()))
 pad = [r for r in review if r["mlb_id"] == "20"]
 assert len(pad) == 1 and pad[0]["option"] == "1" and pad[0]["author"] == "Bo" and pad[0]["license"] == "CC BY 2.0"
 assert pad[0]["image_url"].endswith("123_abc_z.jpg") and pad[0]["face"] == "yes" and pad[0]["approve"] == ""
-assert {r["mlb_id"] for r in review if r["option"] == "0"} == {"30", "40"}   # searched, nothing found
+bulk = [r for r in review if r["mlb_id"] == "30"]               # from his Commons category, matched by MLB ID
+assert len(bulk) == 1 and bulk[0]["author"] == "Dee" and bulk[0]["license"] == "CC BY 4.0"
+assert bulk[0]["image_url"].endswith("500px-bulk.jpg") and "matched by MLB ID" in bulk[0]["title"]
+assert {r["mlb_id"] for r in review if r["option"] == "0"} == {"40"}   # searched, nothing found
 assert "Pad Ace" in ph.REVIEW_PAGE.read_text() and "Ballpark at night" not in ph.REVIEW_PAGE.read_text()
 assert (ph.SHEETS_DIR / "crops_01.png").exists() and (ph.SHEETS_DIR / "review_01.png").exists()
 assert "20" not in meta["photos"]
