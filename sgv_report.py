@@ -76,28 +76,56 @@ def season_pitchers(df, season, qualifier):
     return sorted(players, key=lambda x: x["n"])
 
 
-def write_report(df, league_rows, thresholds, path, photos=None):
-    league = {r["season"]: r for r in league_rows}
+MILB_NOTE = ("Minor leagues: league averages are per league (e.g. Pacific Coast vs International League). "
+             "7-inning doubleheaders count the bullpen for the innings left of 7 and scale the run baseline to 7 innings. "
+             "Park factors are computed from each season's games (home park vs the home team's road games, "
+             "regressed halfway to 1.00), since FanGraphs doesn't publish minor-league ones.")
+
+
+def _entry(df, league_rows, t, season, level=None):
+    """One board of the page: a season (MLB) or a level and season (MiLB)."""
+    leagues = [r for r in league_rows if r["season"] == season and r.get("level") == level]
+    games = sum(r["games"] for r in leagues)
+    team_games = (sum(2 * r["games"] for r in leagues) / sum(r.get("teams", 30) for r in leagues)) if leagues else 162
+    wavg = lambda k: sum(r[k] * r["games"] for r in leagues) / games if games else float("nan")
+    board = season_boards(df, int(season), team_games)
+    starts = df[df["season"] == season]
+    board.update({
+        "wCut": round(t["sgv_w_below"], 2), "lCut": round(t["sgv_l_above"], 2),
+        "band": f"{t['nd_band']:.0%}–{1 - t['nd_band']:.0%}",
+        "calibratedOn": t["calibrated_on"],
+        "currentWeight": min(r["current_weight"] for r in leagues) if leagues else 1,
+        "ra9": round(wavg("bullpen_ra9"), 2),
+        "rpg": round(wavg("runs_per_team_game"), 2),
+        "lgAvg": round(float(starts["SGV"].mean()), 3),
+        "totals": {"starts": len(starts), **{d: int((starts["SGV_dec"] == d).sum()) for d in ("W", "L", "ND")}},
+        "players": season_pitchers(df, int(season), board["qualifier"]),
+    })
+    if level:
+        board["level"] = level
+        board["leagues"] = [{"name": r["league"], "rpg": round(r["runs_per_team_game"], 2),
+                             "ra9": round(r["bullpen_ra9"], 2)} for r in sorted(leagues, key=lambda r: r["league"])]
+    return board
+
+
+def write_report(df, league_rows, thresholds, path, photos=None, levels=None):
+    """MLB page (thresholds by season) or, with `levels` [(code, name)], the MiLB page
+    (league_rows and starts carry a level; thresholds keyed by (level, season))."""
     seasons = sorted(df["season"].unique())
     data = []
-    for s in seasons:
-        board = season_boards(df, int(s), league[s]["team_games"])
-        t = thresholds[s]
-        starts = df[df["season"] == s]
-        board.update({
-            "wCut": round(t["sgv_w_below"], 2), "lCut": round(t["sgv_l_above"], 2),
-            "band": f"{t['nd_band']:.0%}–{1 - t['nd_band']:.0%}",
-            "calibratedOn": t["calibrated_on"],
-            "currentWeight": league[s]["current_weight"],
-            "ra9": round(league[s]["bullpen_ra9"], 2),
-            "rpg": round(league[s]["runs_per_team_game"], 2),
-            "lgAvg": round(float(starts["SGV"].mean()), 3),
-            "totals": {"starts": len(starts),
-                       **{d: int((starts["SGV_dec"] == d).sum()) for d in ("W", "L", "ND")}},
-            "players": season_pitchers(df, int(s), board["qualifier"]),
-        })
-        data.append(board)
-    meta = {"through": str(df["date"].max())}   # last game in the data, not the run time
+    if levels:
+        for code, _ in levels:
+            sub = df[df["level"] == code]
+            for s in sorted(sub["season"].unique()):
+                data.append(_entry(sub, league_rows, thresholds[(code, s)], s, code))
+    else:
+        for s in seasons:
+            data.append(_entry(df, league_rows, thresholds[s], s))
+    meta = {"through": str(df["date"].max()),   # last game in the data, not the run time
+            "mode": "milb" if levels else "mlb",
+            "levels": [list(x) for x in levels or []],
+            "xlsx": "sgv_milb_records.xlsx" if levels else "sgv_records.xlsx",
+            "note": MILB_NOTE if levels else ""}
     # Player photos for the starters on the page:
     # id -> [image, source page, author, licence, source, face crop [left, top, width, height] or null]
     ids = {str(i) for i in df["pitcher_id"].unique()}
@@ -108,8 +136,6 @@ def write_report(df, league_rows, thresholds, path, photos=None):
     page = TEMPLATE.replace("__DATA__", json.dumps(data, ensure_ascii=False, separators=(",", ":")))
     page = page.replace("__META__", json.dumps(meta))
     path.write_text(page, encoding="utf-8")
-
-
 
 
 TEMPLATE = r"""<!doctype html>
@@ -153,6 +179,7 @@ TEMPLATE = r"""<!doctype html>
   --w-tint: #4a1d22; --l-tint: #1f2c47;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; scroll-padding-top: 56px; }
 body { margin: 0; background: var(--page); color: var(--ink-2);
        font: 15px/1.4 "Roboto Condensed", "Arial Narrow", Roboto, Arial, sans-serif; }
@@ -176,6 +203,14 @@ a:hover { text-decoration: underline; }
 .tabs button { border: 0; background: none; cursor: pointer; padding: 12px 16px 9px; font-family: inherit;
                font-size: 18px; font-weight: 700; line-height: 1; color: var(--ink-3); border-bottom: 3px solid transparent; }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--border); }
+.tabgroup { display: flex; flex-wrap: wrap; }
+.tabs button { white-space: nowrap; }
+@media (max-width: 520px) { .tabs button { padding: 12px 9px 9px; font-size: 16px; } .tabs#levels { margin-left: 0; padding-left: 0; border-left: 0; } }
+.tabs#levels { border-left: 1px solid var(--line); margin-left: 6px; padding-left: 6px; }
+.modes { display: flex; gap: 4px; margin-left: 18px; margin-right: auto; }
+.modes a { color: #b9d3d8; font-weight: 700; font-size: 15px; padding: 5px 10px; border: 1px solid transparent; }
+.modes a:hover { text-decoration: none; border-color: var(--border); }
+.modes a.on { background: var(--border); color: #fff; }
 .jump { display: flex; align-items: center; gap: 18px; font-size: 15px; }
 .jump a { color: var(--ink-3); }
 
@@ -339,13 +374,15 @@ footer a { color: #fff; text-decoration: underline; }
 <header class="topbar">
   <div class="wrap topbar-in">
     <a class="brand" href="./"><b>SGV</b><span>Starter Game Value</span></a>
+    <nav class="modes" aria-label="League"><a id="mode-mlb">MLB</a><a id="mode-milb">MiLB</a></nav>
     <div class="topbar-meta"><span id="through"></span>
       <a class="gh" href="https://github.com/Luca-Pfi/Advanced-Sabermetrics-Development-SGV">GitHub</a></div>
   </div>
 </header>
 <nav class="subnav" aria-label="Season and sections">
   <div class="wrap subnav-in">
-    <div class="tabs" id="seasons" role="tablist" aria-label="Season"></div>
+    <div class="tabgroup"><div class="tabs" id="seasons" role="tablist" aria-label="Season"></div>
+      <div class="tabs" id="levels" role="tablist" aria-label="Level" hidden></div></div>
     <div class="jump"><a href="#leaders">Leaders</a><a href="#hard-luck">Hard Luck</a><a href="#fortunate">Fortunate</a><a href="#lookup">Player Search</a></div>
   </div>
 </nav>
@@ -363,7 +400,7 @@ footer a { color: #fff; text-decoration: underline; }
   </div>
 
   <section class="panel" id="leaders">
-    <h2 class="ptitle"><b class="yr"></b> SGV Leaders</h2>
+    <h2 class="ptitle"><b class="yr"></b><span class="lvl"></span> SGV Leaders</h2>
     <p class="psub" id="qual"></p>
     <div class="key"><span><i class="sq" style="background:var(--w)"></i>SGV W</span><span><i class="sq" style="background:var(--nd)"></i>SGV ND</span><span><i class="sq" style="background:var(--l)"></i>SGV L</span><span>Avg SGV badge: percentile among qualified starters</span></div>
     <div class="scroll"><table class="t" id="leaders-table"></table></div>
@@ -372,13 +409,13 @@ footer a { color: #fff; text-decoration: underline; }
 
   <div class="grid2">
     <section class="panel" id="hard-luck">
-      <h2 class="ptitle"><b class="yr"></b> Hard Luck</h2>
+      <h2 class="ptitle"><b class="yr"></b><span class="lvl"></span> Hard Luck</h2>
       <p class="psub">Pitched better than the real record shows</p>
       <div class="key"><span><i class="ring"></i>Real</span><span><i class="dot" style="background:var(--w)"></i>SGV</span><span>net wins (W − L)</span></div>
       <div class="scroll"><table class="t" id="hard-luck-table"></table></div>
     </section>
     <section class="panel" id="fortunate">
-      <h2 class="ptitle"><b class="yr"></b> Fortunate</h2>
+      <h2 class="ptitle"><b class="yr"></b><span class="lvl"></span> Fortunate</h2>
       <p class="psub">Real record flatters the pitching</p>
       <div class="key"><span><i class="ring"></i>Real</span><span><i class="dot" style="background:var(--l)"></i>SGV</span><span>same scale as Hard Luck</span></div>
       <div class="scroll"><table class="t" id="fortunate-table"></table></div>
@@ -387,7 +424,7 @@ footer a { color: #fff; text-decoration: underline; }
 
   <section id="lookup">
     <div class="panel" style="padding-bottom:6px">
-      <h2 class="ptitle" id="lookup-title"><b class="yr"></b> Player Search</h2>
+      <h2 class="ptitle" id="lookup-title"><b class="yr"></b><span class="lvl"></span> Player Search</h2>
       <div class="search">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
         <input id="search" type="search" placeholder="Search any starter" autocomplete="off"
@@ -406,7 +443,8 @@ footer a { color: #fff; text-decoration: underline; }
       <p>Qualified: at least 1 start per 8 team games (20 GS over a full season). Swing = (SGV W − SGV L) − (real W − real L).
       Percentiles rank qualified starters of the season, 1 to 100; for Avg SGV, ERA, SGV Loss % and Short Start %, lower is better.</p></div>
     <div><h5>Data</h5><p>Box scores: MLB Stats API. Park factors: FanGraphs.</p>
-      <p><a href="sgv_records.xlsx">Download every start (.xlsx)</a> · <a href="https://github.com/Luca-Pfi/Advanced-Sabermetrics-Development-SGV">Code on GitHub</a></p>
+      <p id="mode-note"></p>
+      <p><a id="xlsx" href="sgv_records.xlsx">Download every start (.xlsx)</a> · <a href="https://github.com/Luca-Pfi/Advanced-Sabermetrics-Development-SGV">Code on GitHub</a></p>
       <p>Independent project. Not affiliated with or endorsed by Major League Baseball.</p></div>
   </div>
 </footer>
@@ -448,7 +486,10 @@ function pctColor(p) {
 }
 
 let current, selected = null, expanded = false, sort = { key: "rank", dir: 1 };
-const seasonData = () => DATA.find((x) => x.season === current);
+let level = null;   // minor-league level code (AAA, AA, A+, A); null on the MLB page
+const LEVEL_NAME = Object.fromEntries(META.levels || []);
+const seasonData = () => DATA.find((x) => x.season === current && (x.level || null) === level);
+const where = (x) => `${x.season}${x.level ? " " + LEVEL_NAME[x.level] : ""}`;
 
 /* ---------- metrics + percentiles ---------- */
 const QS = (g) => g[3] >= 18 && g[4] <= 3;          // quality start: 6+ IP, 3 or fewer ER
@@ -482,7 +523,7 @@ function renderScoreboard(d) {
   const t = d.totals;
   const blend = d.currentWeight < 1 ? ` Early season: league averages are ${Math.round(d.currentWeight * 100)}% ${d.season}.` : "";
   document.getElementById("scoreboard").innerHTML =
-    `<h2 class="ptitle"><b>${d.season}</b> League</h2>
+    `<h2 class="ptitle"><b>${d.season}</b> ${d.level ? esc(LEVEL_NAME[d.level]) : "League"}</h2>
      <div class="scroll"><table class="t"><thead><tr><th>Starts</th><th>SGV W</th><th>SGV L</th><th>SGV ND</th>
        <th class="hide-sm">W if SGV &lt;</th><th class="hide-sm">L if SGV &gt;</th></tr></thead>
      <tbody><tr><td>${fmt(t.starts)}</td><td class="w">${fmt(t.W)}</td><td class="lo">${fmt(t.L)}</td><td>${fmt(t.ND)}</td>
@@ -490,7 +531,9 @@ function renderScoreboard(d) {
      <div class="split" role="img" aria-label="Share of starts: SGV W ${pctText(t.W / t.starts)}, ND ${pctText(t.ND / t.starts)}, SGV L ${pctText(t.L / t.starts)}">
        <i style="width:${100 * t.W / t.starts}%;background:var(--w)"></i><i style="width:${100 * t.ND / t.starts}%;background:var(--nd)"></i><i style="width:${100 * t.L / t.starts}%;background:var(--l)"></i></div>
      <div class="split-lbl"><span>SGV W ${pctText(t.W / t.starts)}</span><span>ND ${pctText(t.ND / t.starts)}</span><span>SGV L ${pctText(t.L / t.starts)}</span></div>
-     <p class="meta">League ${d.rpg.toFixed(2)} runs per team game · bullpen RA9 ${d.ra9.toFixed(2)} · average start SGV ${dec2(d.lgAvg)} ·
+     <p class="meta">${d.leagues
+       ? d.leagues.map((l) => `${esc(l.name.replace(/ League$/, ""))} ${l.rpg.toFixed(2)} R/9`).join(" · ") + " (runs per team per 9 innings)"
+       : `League ${d.rpg.toFixed(2)} runs per team game`} · bullpen RA9 ${d.ra9.toFixed(2)} · average start SGV ${dec2(d.lgAvg)} ·
        ${d.qualified} qualified starters.${blend}</p>`;
 }
 
@@ -589,7 +632,7 @@ function choose(p) {
   searchBox.value = p.n;
   matchList.hidden = true;
   searchBox.setAttribute("aria-expanded", "false");
-  history.replaceState(null, "", `#pitcher=${encodeURIComponent(p.n)}&season=${current}`);
+  history.replaceState(null, "", `#pitcher=${encodeURIComponent(p.n)}&season=${current}${level ? "&level=" + encodeURIComponent(level) : ""}`);
   renderLookup();
 }
 // Clearing the box (its ✕, or deleting the name) hides the player page again.
@@ -633,13 +676,17 @@ const BALL = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12
 const ARM = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l6-6 3 3 7-11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 function profileCard(p, d) {
-  const seasons = DATA.map((x) => ({ season: x.season, p: x.players.find((y) => y.id === p.id) })).filter((x) => x.p);
+  // One row per season (and level, in the minors), in career order: 2025 A+, 2025 AA, 2026 AAA, ...
+  const levelOrder = (code) => -(META.levels || []).findIndex(([c]) => c === code);
+  const seasons = DATA.map((x) => ({ season: x.season, level: x.level, label: x.level ? `${x.season} ${x.level}` : x.season,
+                                     p: x.players.find((y) => y.id === p.id) })).filter((x) => x.p)
+    .sort((a, b) => a.season - b.season || levelOrder(a.level) - levelOrder(b.level));
   const row = (label, q, cls = "") => {
     const era = q.outs ? (27 * q.er / q.outs).toFixed(2) : "–";
     return `<tr class="${cls}"><td class="l">${label}</td><td>${q.gs}</td><td>${ipText(q.outs)}</td><td>${era}</td>
       <td>${rec(q.s)}</td><td>${rec(q.a)}</td><td class="hide-sm">${signed(net(q.s) - net(q.a))}</td><td>${dec2(q.avg)}</td></tr>`;
   };
-  const rows = seasons.map((x) => row(x.season, { gs: x.p.g.length, outs: x.p.outs, er: x.p.er, s: x.p.s, a: x.p.a, avg: x.p.avg })).join("");
+  const rows = seasons.map((x) => row(x.label, { gs: x.p.g.length, outs: x.p.outs, er: x.p.er, s: x.p.s, a: x.p.a, avg: x.p.avg })).join("");
   const sum = (f) => seasons.reduce((t, x) => t + f(x.p), 0);
   const tot = { gs: sum((q) => q.g.length), outs: sum((q) => q.outs), er: sum((q) => q.er),
     s: [0, 1, 2].map((i) => sum((q) => q.s[i])), a: [0, 1, 2].map((i) => sum((q) => q.a[i])),
@@ -658,7 +705,7 @@ function profileCard(p, d) {
   return `<div class="panel card"><div class="card-top">
       ${avatar}
       <h3 class="pname">${esc(p.n)}</h3>
-      <p class="pline">SP | ${esc(p.t)} | ${d.season}</p>
+      <p class="pline">SP | ${esc(p.t)} | ${esc(where(d))}</p>
       <p class="pline2">${rank}</p></div>
     <div class="scroll"><table class="t"><thead><tr><th class="l">Season</th><th>GS</th><th>IP</th><th>ERA</th><th>SGV</th>
       <th>Real</th><th class="hide-sm">Swing</th><th>Avg</th></tr></thead>
@@ -729,11 +776,15 @@ function renderLookup() {
   document.querySelector("#lookup-title b").textContent = current;
   const p = selected === null ? null : d.players.find((x) => x.id === selected);
   if (selected !== null && !p) {
-    const other = DATA.filter((x) => x.season !== current && x.players.some((y) => y.id === selected));
+    const other = DATA.filter((x) => x !== d && x.players.some((y) => y.id === selected));
     const name = DATA.flatMap((x) => x.players).find((y) => y.id === selected).n;
-    box.innerHTML = `<div class="panel"><p class="empty">${esc(name)} made no starts in ${current}.` +
-      other.map((x) => ` <button class="linkish" data-season="${x.season}">See ${x.season}</button>`).join("") + "</p></div>";
-    box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => renderSeason(+b.dataset.season)));
+    box.innerHTML = `<div class="panel"><p class="empty">${esc(name)} made no starts in ${esc(where(d))}.` +
+      other.map((x, i) => ` <button class="linkish" data-i="${i}">See ${esc(where(x))}</button>`).join("") + "</p></div>";
+    box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      const x = other[+b.dataset.i];
+      level = x.level || null;
+      renderSeason(x.season);
+    }));
     return;
   }
   if (!p) { box.replaceChildren(); return; }   // nothing shown until a pitcher is searched
@@ -765,10 +816,16 @@ function renderLookup() {
 
 /* ---------- season ---------- */
 function renderSeason(season) {
+  // A level without this season (e.g. a new level mid-way) falls back to its latest season.
+  if (!DATA.some((x) => x.season === season && (x.level || null) === level)) {
+    season = Math.max(...DATA.filter((x) => (x.level || null) === level).map((x) => x.season));
+  }
   current = season;
   const d = seasonData();
   document.querySelectorAll("#seasons button").forEach((b) => b.setAttribute("aria-selected", String(+b.dataset.season === season)));
+  document.querySelectorAll("#levels button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.level === level)));
   document.querySelectorAll(".ptitle b.yr").forEach((b) => { b.textContent = season; });
+  document.querySelectorAll(".ptitle .lvl").forEach((el) => { el.textContent = level ? " " + LEVEL_NAME[level] : ""; });
   document.getElementById("band").textContent = d.band;
   document.getElementById("qual").textContent = `${d.qualified} qualified starters, min. ${d.qualifier} GS · click a column to sort`;
   renderScoreboard(d);
@@ -783,28 +840,58 @@ function renderSeason(season) {
     `${season}: SGV W if SGV < ${dec2(d.wCut)}, SGV L if SGV > +${d.lCut.toFixed(2)}, SGV ND in between (team win probability ${d.band}). ` +
     `Thresholds are fixed for the season, calibrated on ${d.calibratedOn}. League bullpen RA9 ${d.ra9.toFixed(2)}, ${d.rpg.toFixed(2)} runs per team game.`;
   renderLookup();
-  try { localStorage.setItem("sgv-season", season); } catch (e) {}
+  try {
+    localStorage.setItem(`sgv-season-${META.mode}`, season);
+    if (level) localStorage.setItem("sgv-level", level);
+  } catch (e) {}
 }
 
 const tabs = document.getElementById("seasons");
-[...DATA].reverse().forEach((d) => {
+[...new Set(DATA.map((d) => d.season))].sort((a, b) => b - a).forEach((season) => {
   const b = document.createElement("button");
-  b.type = "button"; b.setAttribute("role", "tab"); b.textContent = d.season; b.dataset.season = d.season;
-  b.addEventListener("click", () => renderSeason(d.season));
+  b.type = "button"; b.setAttribute("role", "tab"); b.textContent = season; b.dataset.season = season;
+  b.addEventListener("click", () => renderSeason(season));
   tabs.append(b);
 });
+const levelTabs = document.getElementById("levels");
+(META.levels || []).filter(([code]) => DATA.some((d) => d.level === code)).forEach(([code, name]) => {
+  const b = document.createElement("button");
+  b.type = "button"; b.setAttribute("role", "tab"); b.textContent = name; b.dataset.level = code;
+  b.addEventListener("click", () => { level = code; renderSeason(current); });
+  levelTabs.append(b);
+});
+levelTabs.hidden = !levelTabs.children.length;
+// MLB | MiLB switch: the MLB page is sgv_report.html locally and the site's home page online.
+const mlbHref = location.protocol === "file:" ? "sgv_report.html" : "./";
+document.getElementById("mode-mlb").href = mlbHref;
+document.getElementById("mode-milb").href = "sgv_milb.html";
+document.getElementById(`mode-${META.mode}`).classList.add("on");
+document.getElementById(`mode-${META.mode}`).setAttribute("aria-current", "page");
+document.querySelector(".brand").href = mlbHref;
+document.getElementById("mode-note").textContent = META.note || "";
+document.getElementById("mode-note").hidden = !META.note;
+document.getElementById("xlsx").href = META.xlsx;
 document.getElementById("through").textContent = "Through " +
   new Date(META.through + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-let start = DATA[DATA.length - 1].season;
-try { const s = +localStorage.getItem("sgv-season"); if (DATA.some((d) => d.season === s)) start = s; } catch (e) {}
-// A shared lookup link: #pitcher=<name>&season=<year>
+let start = Math.max(...DATA.map((d) => d.season));
+if ((META.levels || []).length) level = levelTabs.children[0]?.dataset.level || null;
+try {
+  const s = +localStorage.getItem(`sgv-season-${META.mode}`); if (DATA.some((d) => d.season === s)) start = s;
+  const l = localStorage.getItem("sgv-level"); if (level && DATA.some((d) => d.level === l)) level = l;
+} catch (e) {}
+// A shared lookup link: #pitcher=<name>&season=<year>[&level=<code>]
 const hash = new URLSearchParams(location.hash.slice(1));
 if (hash.get("season") && DATA.some((d) => d.season === +hash.get("season"))) start = +hash.get("season");
+if (level && hash.get("level") && DATA.some((d) => d.level === hash.get("level"))) level = hash.get("level");
 if (hash.get("pitcher")) {
   const want = norm(hash.get("pitcher"));
-  const hit = (DATA.find((d) => d.season === start) || DATA.at(-1)).players.find((p) => norm(p.n) === want)
-    || DATA.flatMap((d) => d.players).find((p) => norm(p.n) === want);
+  const here = DATA.find((d) => d.season === start && (d.level || null) === level);
+  let hit = here && here.players.find((p) => norm(p.n) === want);
+  if (!hit) {   // the pitcher started elsewhere: open that season and level
+    const x = DATA.find((d) => d.players.some((p) => norm(p.n) === want));
+    if (x) { start = x.season; level = x.level || null; hit = x.players.find((p) => norm(p.n) === want); }
+  }
   if (hit) { selected = hit.id; searchBox.value = hit.n; }
 }
 renderSeason(start);

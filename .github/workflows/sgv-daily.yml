@@ -44,7 +44,7 @@ jobs:
           key: boxscores-${{ github.run_id }}
           restore-keys: boxscores-
 
-      - name: Compute SGV (2025 to current season)
+      - name: Compute SGV, MLB and minor leagues (2025 to current season)
         env:
           SGV_INSPECT: ${{ inputs.inspect }}
         run: python sgv.py --no-open --seasons $(seq 2025 "$(date -u +%Y)")
@@ -54,14 +54,15 @@ jobs:
       - name: Commit updated results
         run: |
           git add sgv_report.html park_factors.csv nd_thresholds.csv player_photos.json \
-                  photo_review.csv photo_review.html docs/photo_check
+                  photo_review.csv photo_review.html docs/photo_check \
+                  sgv_milb.html milb_nd_thresholds.csv milb_park_factors.csv
           if git diff --cached --quiet; then
             echo "No new games since the last update."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          git add sgv_records.xlsx
+          git add sgv_records.xlsx sgv_milb_records.xlsx
           git commit -m "SGV update $(date -u +%Y-%m-%d)"
           git push
 
@@ -69,7 +70,7 @@ jobs:
         run: |
           mkdir -p _site
           cp sgv_report.html _site/index.html
-          cp sgv_records.xlsx photo_review.html _site/
+          cp sgv_records.xlsx photo_review.html sgv_milb.html sgv_milb_records.xlsx _site/
 
       - uses: actions/upload-pages-artifact@v5
         with:

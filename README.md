@@ -154,6 +154,19 @@ The simplest way to run it live is the daily GitHub workflow below; it needs no 
 
 ---
 
+## Minor leagues (MiLB)
+
+The **MiLB** tab ([sgv_milb.html](https://luca-pfi.github.io/Advanced-Sabermetrics-Development-SGV/sgv_milb.html)) shows the same leaderboards, player search and percentiles for **Triple-A, Double-A, High-A and Single-A**, from 2025, with a tab per level. The data comes from the same MLB Stats API. The record is the same, with three changes for the minors (`milb.py`):
+
+- **League averages per league:** bullpen RA9 and runs per team per 9 innings are computed separately for each league, e.g. Pacific Coast vs International League, because run environments differ a lot within a level.
+- **7-inning doubleheaders:** the bullpen covers the innings left of the scheduled length, and the run baseline is scaled to it:
+  `SGV = (ER + Bullpen RA9 × (scheduled innings − IP) / 9) − (Runs per team per 9 innings × scheduled innings / 9 × Park factor)`
+- **Park factors computed from the games:** FanGraphs doesn't publish minor-league park factors, so each park's factor is runs per 9 innings in its home games divided by the home team's road games, pulled halfway to 1.00. Parks with fewer than 20 games (neutral sites) get 1.00. They're saved in `milb_park_factors.csv`; a value in the `override` column replaces the computed one.
+
+ND thresholds are calibrated per level and kept fixed for a season, like MLB (`milb_nd_thresholds.csv`). The qualifying minimum is 1 start per 8 team games of that level. A pitcher's profile lists every level and season they started in. Rookie leagues (complex leagues and DSL) aren't included: their starts are often piggybacked and many games are short. Every minor-league start is in `sgv_milb_records.xlsx`. Run `python sgv.py --no-milb` to skip the minors.
+
+---
+
 ## Live leaderboard (GitHub Actions + GitHub Pages)
 
 `.github/workflows/sgv-daily.yml` updates SGV automatically **every morning from March to October** at 08:47 UTC, after the previous night's games are final:
@@ -216,6 +229,9 @@ The tests run the whole pipeline offline on a small simulated season, without co
 | `sgv_report.py` | HTML leaderboards |
 | `park_factors.csv` | Park factors per season and ballpark |
 | `nd_thresholds.csv` | ND thresholds per season (fixed once calibrated) |
+| `milb.py` | Minor leagues: per-league averages, 7-inning games, computed park factors, MiLB page |
+| `sgv_milb.html`, `sgv_milb_records.xlsx` | Minor-league page and every minor-league start |
+| `milb_park_factors.csv`, `milb_nd_thresholds.csv` | Computed MiLB park factors (with overrides) and ND thresholds per level |
 | `photos.py` | Player photos: Wikimedia lookup, face framing, Openverse candidates, contact sheets |
 | `player_photos.json` | Player photos with author, licence, source and face crop (cached) |
 | `photo_review.csv`, `photo_review.html` | Openverse photo candidates waiting for approval |

@@ -11,6 +11,9 @@ sgv.CACHE_DIR = tmp / "cache"
 sgv.PARK_FACTORS_FILE = tmp / "park_factors.csv"
 sgv.OUTPUT_FILE = tmp / "out.xlsx"
 sgv.REPORT_FILE = tmp / "report.html"
+import milb
+milb.REPORT_FILE, milb.OUTPUT_FILE = tmp / "milb.html", tmp / "milb.xlsx"
+milb.THRESHOLDS_FILE, milb.PARK_FILE = tmp / "milb_thresholds.csv", tmp / "milb_parks.csv"
 sgv.THRESHOLDS_FILE = tmp / "nd_thresholds.csv"
 
 TEAMS = {1: "COL", 2: "SDP", 3: "LAD", 4: "CHC"}
@@ -173,6 +176,12 @@ assert sgv.sgv_decision(w_cut - 0.01, w_cut, l_cut) == "W"
 assert sgv.sgv_decision(l_cut + 0.01, w_cut, l_cut) == "L"
 assert sgv.sgv_decision((w_cut + l_cut) / 2, w_cut, l_cut) == "ND"
 report = sgv.REPORT_FILE.read_text()
+# the page script must parse (a duplicate declaration once broke the whole page)
+import subprocess, re, json
+script = re.search(r"<script>(.*)</script>", report, re.S).group(1)
+(tmp / "page.js").write_text(script)
+check = subprocess.run(["node", "--check", str(tmp / "page.js")], capture_output=True, text=True)
+assert check.returncode == 0, check.stderr
 assert "SGV Leaderboards" in report and 'id="lookup"' in report
 # the lookup carries every starter of each season, qualified or not, with one entry per start
 import json, re
@@ -303,6 +312,36 @@ def offline(*a, **k):
 ph._wiki_post = ph._wiki_get = offline
 table["30"]["checked"] = "2020-01-01"; ph.PHOTOS_FILE.write_text(json.dumps(table))
 assert ph.refresh(players)["10"]["img"]                  # Wikimedia down: keep what we have, no crash
+
+# MiLB: the run also built a minor-league page from the (fake) league ids, with level tabs
+assert milb.REPORT_FILE.exists() and '"mode": "milb"' in milb.REPORT_FILE.read_text()
+mdata = json.loads(re.search(r"const DATA = (.*);\n", milb.REPORT_FILE.read_text()).group(1))
+assert {d["level"] for d in mdata} == {"AAA", "AA", "A+", "A"} and all(d["players"] for d in mdata)
+
+# MiLB rules: per-league averages, 7-inning games scaled, park factors from the games themselves
+def mgame(pk, home, away, hs, as_, innings, venue):
+    return {"gamePk": pk, "date": "2025-05-01", "venue": venue, "home_id": home, "away_id": away,
+            "home_score": hs, "away_score": as_, "innings": innings}
+def mbox(home, away, hs, as_):
+    def side_(team, runs, pid):
+        return {"team": {"id": team}, "teamStats": {"batting": {"runs": runs}}, "pitchers": [pid, pid + 1],
+                "players": {f"ID{pid}": {"person": {"id": pid, "fullName": f"P{pid}"}, "stats": {"pitching": {
+                                "outs": 15, "earnedRuns": 2, "runs": 2, "gamesStarted": 1}}},
+                            f"ID{pid + 1}": {"person": {"id": pid + 1, "fullName": f"R{pid}"}, "stats": {"pitching": {
+                                "outs": 12, "earnedRuns": 1, "runs": 2}}}}}
+    return {"teams": {"home": side_(home, hs, home * 10), "away": side_(away, as_, away * 10)}}
+teams = {1: ("HOT", "Pacific Coast League"), 2: ("ALT", "Pacific Coast League"),
+         3: ("COL", "International League"), 4: ("CLD", "International League")}
+games = [mgame(1, 1, 2, 10, 8, 9, "Hot Park")] * 25 + [mgame(2, 2, 1, 4, 4, 9, "Alt Park")] * 25 \
+        + [mgame(3, 3, 4, 3, 2, 7, "Cool Park")] * 20 + [mgame(4, 3, 4, 3, 3, 9, "Neutral Site")] * 2
+boxes = [mbox(g["home_id"], g["away_id"], g["home_score"], g["away_score"]) for g in games]
+starts, leagues, parks = milb.level_season(games, boxes, teams)
+pcl, il = leagues["Pacific Coast League"], leagues["International League"]
+assert abs(pcl["runs_per_team_game"] - (25 * 18 + 25 * 8) / (50 * 2)) < 1e-9        # 6.5 runs per team per 9
+assert abs(il["runs_per_team_game"] - (20 * 5 + 2 * 6) / (20 * 2 * 7 / 9 + 2 * 2)) < 1e-9   # 7-inning games count 7/9
+assert abs(parks[("Hot Park", 1)]["raw"] - (18 / 8)) < 1e-9 and abs(parks[("Hot Park", 1)]["pf"] - (1 + 0.5 * 1.25)) < 1e-9
+assert parks[("Neutral Site", 3)]["pf"] == 1.0                                         # too few games: neutral
+assert abs(milb.sgv_milb(2, 5, 7, 4.5, 5.0, 1.0) - (2 + 4.5 * 2 / 9 - 5.0 * 7 / 9)) < 1e-9   # 7-inning start
 
 shutil.rmtree(tmp)
 print("ALL CHECKS PASSED")

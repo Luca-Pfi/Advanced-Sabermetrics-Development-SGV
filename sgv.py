@@ -52,6 +52,7 @@ import numpy as np
 import pandas as pd
 import requests
 
+import milb
 import photos
 from sgv_report import write_report
 
@@ -88,14 +89,21 @@ def get_json(path, params=None, retries=4):
             time.sleep(2 ** (attempt + 1))
 
 
-def fetch_team_abbreviations(season):
-    data = get_json("teams", {"sportId": 1, "season": season})
+def fetch_team_abbreviations(season, sport_id=1):
+    data = get_json("teams", {"sportId": sport_id, "season": season})
     return {t["id"]: t["abbreviation"] for t in data["teams"]}
 
 
-def fetch_final_games(season):
-    """All finished regular-season games of a season, one entry per gamePk."""
-    data = get_json("schedule", {"sportId": 1, "season": season, "gameType": "R"})
+def fetch_teams(season, sport_id):
+    """Team id -> (abbreviation, league name), for the minor leagues."""
+    data = get_json("teams", {"sportId": sport_id, "season": season})
+    return {t["id"]: (t.get("abbreviation") or t.get("teamName", str(t["id"])), t.get("league", {}).get("name", ""))
+            for t in data["teams"]}
+
+
+def fetch_final_games(season, sport_id=1):
+    """All finished regular-season games of a season, one entry per gamePk (sportId 1 = MLB)."""
+    data = get_json("schedule", {"sportId": sport_id, "season": season, "gameType": "R"})
     games = {}
     for day in data.get("dates", []):
         for g in day["games"]:
@@ -113,6 +121,7 @@ def fetch_final_games(season):
                 "away_id": g["teams"]["away"]["team"]["id"],
                 "home_score": g["teams"]["home"].get("score"),
                 "away_score": g["teams"]["away"].get("score"),
+                "innings": g.get("scheduledInnings") or 9,   # 7 for minor-league doubleheaders
             }
     return sorted(games.values(), key=lambda g: (g["date"], g["gamePk"]))
 
@@ -432,7 +441,7 @@ def update_park_factor_file(pf, season, starts):
 # Main
 # --------------------------------------------------------------------------
 
-def run(seasons, band, refresh_days, open_report=False):
+def run(seasons, band, refresh_days, open_report=False, with_milb=True):
     refresh_since = (pd.Timestamp.today() - pd.Timedelta(days=refresh_days)).strftime("%Y-%m-%d")
     pf = load_park_factors()
     all_starts, league_rows, missing = [], [], []
@@ -492,6 +501,11 @@ def run(seasons, band, refresh_days, open_report=False):
     write_output(all_starts, league_rows, seasons, thresholds)
     write_report(pd.DataFrame(all_starts), league_rows, thresholds, REPORT_FILE, photo_table)
     print(f"\nWrote {OUTPUT_FILE}\nWrote {REPORT_FILE}")
+    if with_milb:
+        try:
+            milb.run(seasons, band, refresh_since, photo_table)
+        except Exception as e:   # the minor leagues must never stop the MLB update
+            print(f"MiLB step failed ({e.__class__.__name__}: {e}); the MLB page is up to date")
     if open_report:
         webbrowser.open(REPORT_FILE.as_uri())
     return True
@@ -579,6 +593,8 @@ def main():
                          "nd_thresholds.csv")
     ap.add_argument("--refresh-days", type=int, default=3,
                     help="re-download box scores from the last N days (scoring changes)")
+    ap.add_argument("--no-milb", action="store_true",
+                    help="skip the minor leagues (Triple-A to Single-A)")
     ap.add_argument("--no-open", action="store_true",
                     help="do not open the HTML report in the browser when done")
     ap.add_argument("--watch", type=int, metavar="MINUTES",
@@ -587,7 +603,7 @@ def main():
 
     open_report = not args.no_open
     while True:
-        ok = run(args.seasons, args.nd_band, args.refresh_days, open_report)
+        ok = run(args.seasons, args.nd_band, args.refresh_days, open_report, with_milb=not args.no_milb)
         open_report = False   # in --watch mode, open the browser only once
         if not args.watch:
             sys.exit(0 if ok else 1)   # non-zero so a scheduled run shows as failed
