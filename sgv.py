@@ -484,7 +484,11 @@ def run(seasons, band, refresh_days, open_report=False):
 
     # Latest name and team of every starter, for the photo lookup and its review files
     players = {s["pitcher_id"]: (s["pitcher"], s["team"]) for s in sorted(all_starts, key=lambda s: s["date"])}
-    photo_table = photos.refresh(players)
+    try:
+        photo_table = photos.refresh(players)
+    except Exception as e:   # photos are optional: never let them stop the SGV update
+        print(f"Player photos step failed ({e.__class__.__name__}: {e}); keeping the existing photos")
+        photo_table = photos.load_photos()
     write_output(all_starts, league_rows, seasons, thresholds)
     write_report(pd.DataFrame(all_starts), league_rows, thresholds, REPORT_FILE, photo_table)
     print(f"\nWrote {OUTPUT_FILE}\nWrote {REPORT_FILE}")
