@@ -406,7 +406,7 @@ def detect_face(img):
     best = None
     # The model is trained at 300x300; a second pass near native size finds the small faces of action shots.
     scale = 640 / max(h, w)
-    native = (min(1024, max(192, int(w * scale) // 32 * 32)), min(1024, max(192, int(h * scale) // 32 * 32)))
+    native = (min(1024, max(320, int(w * scale) // 32 * 32)), min(1024, max(320, int(h * scale) // 32 * 32)))
     for size in ((300, 300), native):
         try:
             blob = cv2.dnn.blobFromImage(cv2.resize(img, size), 1.0, size, (104.0, 177.0, 123.0))
