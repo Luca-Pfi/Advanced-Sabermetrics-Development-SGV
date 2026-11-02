@@ -1148,17 +1148,17 @@
  "605513": {
   "artist": "Ian D'Andrea from Philadelphia, PA",
   "crop": [
-   0.29,
+   0.35,
    0.0,
-   0.42,
-   0.3646
+   0.3,
+   0.2604
   ],
   "face": "manual",
   "file": "Spencer Turnbull (46857437655) (cropped).jpg",
   "fix": [
    0.5,
-   0.1,
-   0.42
+   0.09,
+   0.3
   ],
   "h": 576,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/44/Spencer_Turnbull_%2846857437655%29_%28cropped%29.jpg/500px-Spencer_Turnbull_%2846857437655%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
@@ -2124,17 +2124,17 @@
  "642232": {
   "artist": "Bryan Green",
   "crop": [
-   0.21,
+   0.3,
    0.0,
-   0.42,
-   0.3231
+   0.3,
+   0.2308
   ],
   "face": "manual",
   "file": "Ryan Yarbrough (cropped).jpg",
   "fix": [
-   0.42,
-   0.11,
-   0.42
+   0.45,
+   0.1,
+   0.3
   ],
   "h": 650,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5c/Ryan_Yarbrough_%28cropped%29.jpg/500px-Ryan_Yarbrough_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
@@ -3679,17 +3679,17 @@
  "669432": {
   "artist": "D. Benjamin Miller",
   "crop": [
-   0.38,
-   0.0,
-   0.26,
-   0.325
+   0.44,
+   0.0075,
+   0.18,
+   0.225
   ],
   "face": "manual",
   "file": "Trevor Rogers pitching, April 8, 2023 (1) (cropped).jpg",
   "fix": [
-   0.51,
-   0.16,
-   0.26
+   0.53,
+   0.12,
+   0.18
   ],
   "h": 400,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5d/Trevor_Rogers_pitching%2C_April_8%2C_2023_%281%29_%28cropped%29.jpg/500px-Trevor_Rogers_pitching%2C_April_8%2C_2023_%281%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
@@ -4246,16 +4246,16 @@
   "artist": "Ryan Casey Aguinaldo",
   "crop": [
    0.27,
-   0.0371,
-   0.26,
-   0.3258
+   0.0422,
+   0.22,
+   0.2757
   ],
   "face": "manual",
   "file": "Ryan Weathers 8.11.21.jpg",
   "fix": [
-   0.4,
-   0.2,
-   0.26
+   0.38,
+   0.18,
+   0.22
   ],
   "h": 399,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/65/Ryan_Weathers_8.11.21.jpg/500px-Ryan_Weathers_8.11.21.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
@@ -4316,17 +4316,17 @@
  "678394": {
   "artist": "MrDMan84",
   "crop": [
-   0.29,
-   0.1549,
-   0.36,
-   0.2703
+   0.34,
+   0.1624,
+   0.26,
+   0.1952
   ],
   "face": "manual",
   "file": "Attach0 20220706 191327 Brayan Bello First Pitch.jpg",
   "fix": [
    0.47,
-   0.29,
-   0.36
+   0.26,
+   0.26
   ],
   "h": 666,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/eb/Attach0_20220706_191327_Brayan_Bello_First_Pitch.jpg/500px-Attach0_20220706_191327_Brayan_Bello_First_Pitch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
@@ -4922,17 +4922,17 @@
  "686993": {
   "artist": "Kachow03",
   "crop": [
-   0.195,
+   0.26,
    0.0,
-   0.45,
-   0.2754
+   0.32,
+   0.1958
   ],
   "face": "manual",
   "file": "Justin Sterner-1.jpg",
   "fix": [
    0.42,
-   0.1,
-   0.45
+   0.09,
+   0.32
   ],
   "h": 817,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8a/Justin_Sterner-1.jpg/500px-Justin_Sterner-1.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
@@ -5046,17 +5046,17 @@
  "687941": {
   "artist": "Joel Dinda from Mulliken, Michigan",
   "crop": [
-   0.34,
-   0.01,
-   0.32,
-   0.32
+   0.37,
+   0.0,
+   0.26,
+   0.26
   ],
   "face": "manual",
   "file": "Alec Gamboa 2 (51211825871) (cropped).jpg",
   "fix": [
    0.5,
-   0.17,
-   0.32
+   0.13,
+   0.26
   ],
   "h": 500,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/bd/Alec_Gamboa_2_%2851211825871%29_%28cropped%29.jpg/500px-Alec_Gamboa_2_%2851211825871%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
@@ -5318,17 +5318,17 @@
  "694819": {
   "artist": "Drovetochicago",
   "crop": [
-   0.36,
-   0.141,
-   0.22,
-   0.3179
+   0.405,
+   0.1516,
+   0.15,
+   0.2168
   ],
   "face": "manual",
   "file": "Jacob Misiorowski.jpg",
   "fix": [
-   0.47,
-   0.3,
-   0.22
+   0.48,
+   0.26,
+   0.15
   ],
   "h": 346,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c7/Jacob_Misiorowski.jpg/500px-Jacob_Misiorowski.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
