@@ -201,10 +201,23 @@ def search_candidates(photos, players, today, budget):
     for pid in missing[:budget]:
         name, team = players[pid]
         try:
-            hits = openverse_search(name)
+            try:
+                hits = openverse_search(name)
+            except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as e:
+                if isinstance(e, requests.HTTPError) and (e.response is None or e.response.status_code < 500):
+                    raise
+                time.sleep(5)                     # Openverse sometimes answers 5xx or slowly: one retry
+                hits = openverse_search(name)
             failures = 0
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else "?"
+            if isinstance(status, int) and status >= 500:
+                failures += 1                     # server error: skip this pitcher, three in a row end the search
+                print(f"  Openverse error {status} for {name}; skipped this run")
+                if failures >= 3:
+                    print("Openverse keeps failing; the search continues on the next run")
+                    break
+                continue
             if status == 429:
                 print("Openverse rate limit reached; the search continues on the next run")
             else:
