@@ -204,10 +204,13 @@ def search_candidates(photos, players, today, budget):
             hits = openverse_search(name)
             failures = 0
         except requests.HTTPError as e:
-            if e.response is not None and e.response.status_code == 429:
+            status = e.response.status_code if e.response is not None else "?"
+            if status == 429:
                 print("Openverse rate limit reached; the search continues on the next run")
-                break
-            raise
+            else:
+                body = (e.response.text if e.response is not None else "")[:300].replace("\n", " ")
+                print(f"Openverse refused the search (HTTP {status}): {body}")
+            break
         except (requests.Timeout, requests.ConnectionError):
             failures += 1          # a slow answer skips this pitcher; three in a row end this run's search
             if failures >= 3:
