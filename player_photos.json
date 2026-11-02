@@ -290,13 +290,18 @@
  "527048": {
   "artist": "mjl816 on Flickr (Original version) UCinternational (Crop)",
   "crop": [
-   0.054,
-   0.0,
-   0.892,
-   1.0
+   0.37,
+   0.3255,
+   0.24,
+   0.2691
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Martín Pérez on March 15, 2012.jpg",
+  "fix": [
+   0.49,
+   0.46,
+   0.24
+  ],
   "h": 446,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/74/Mart%C3%ADn_P%C3%A9rez_on_March_15%2C_2012.jpg/500px-Mart%C3%ADn_P%C3%A9rez_on_March_15%2C_2012.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY-SA 2.0",
@@ -380,13 +385,18 @@
  "543101": {
   "artist": "Erik Drost on Flickr",
   "crop": [
-   0.0,
-   0.0,
-   1.0,
-   0.6667
+   0.57,
+   0.1767,
+   0.4,
+   0.2667
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Anthony DeSclafani on May 23, 2015 (1).jpg",
+  "fix": [
+   0.77,
+   0.31,
+   0.4
+  ],
   "h": 750,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/56/Anthony_DeSclafani_on_May_23%2C_2015_%281%29.jpg/500px-Anthony_DeSclafani_on_May_23%2C_2015_%281%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY 2.0",
@@ -679,6 +689,7 @@
   "img": "https://upload.wikimedia.org/wikipedia/commons/9/95/Yusei_Kikuchi_%2848035120383%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
   "license": "CC BY 2.0",
   "page": "https://commons.wikimedia.org/wiki/File:Yusei_Kikuchi_(48035120383).jpg",
+  "rejected": true,
   "v": 2,
   "via": "Wikimedia Commons",
   "w": 446
@@ -769,6 +780,7 @@
   "img": "https://upload.wikimedia.org/wikipedia/commons/4/41/Brock_Stewart_2019_DODGERS_FANFEST.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
   "license": "CC BY 3.0",
   "page": "https://commons.wikimedia.org/wiki/File:Brock_Stewart_2019_DODGERS_FANFEST.jpg",
+  "rejected": true,
   "v": 2,
   "via": "Wikimedia Commons",
   "w": 445
@@ -1136,13 +1148,18 @@
  "605513": {
   "artist": "Ian D'Andrea from Philadelphia, PA",
   "crop": [
-   0.6259,
-   0.0112,
-   0.2021,
-   0.1754
+   0.29,
+   0.0,
+   0.42,
+   0.3646
   ],
-  "face": "auto",
+  "face": "manual",
   "file": "Spencer Turnbull (46857437655) (cropped).jpg",
+  "fix": [
+   0.5,
+   0.1,
+   0.42
+  ],
   "h": 576,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/44/Spencer_Turnbull_%2846857437655%29_%28cropped%29.jpg/500px-Spencer_Turnbull_%2846857437655%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY-SA 2.0",
@@ -1226,13 +1243,18 @@
  "607074": {
   "artist": "Billy Bob Bain on Flickr (Original version) UCinternational (Crop)",
   "crop": [
-   0.0,
-   0.0,
-   1.0,
-   1.0
+   0.59,
+   0.11,
+   0.26,
+   0.26
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Carlos Rodon on March 11, 2015.jpg",
+  "fix": [
+   0.72,
+   0.24,
+   0.26
+  ],
   "h": 500,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/90/Carlos_Rodon_on_March_11%2C_2015.jpg/500px-Carlos_Rodon_on_March_11%2C_2015.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY 2.0",
@@ -1244,13 +1266,18 @@
  "607192": {
   "artist": "D. Benjamin Miller",
   "crop": [
-   0.0,
-   0.0,
-   1.0,
-   0.6427
+   0.405,
+   0.0254,
+   0.45,
+   0.2892
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Tyler Glasnow on April 15, 2017 (cropped).jpg",
+  "fix": [
+   0.63,
+   0.17,
+   0.45
+  ],
   "h": 778,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/30/Tyler_Glasnow_on_April_15%2C_2017_%28cropped%29.jpg/500px-Tyler_Glasnow_on_April_15%2C_2017_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC0",
@@ -1496,13 +1523,18 @@
  "615698": {
   "artist": "Erik Drost",
   "crop": [
-   0.0,
-   0.0,
-   0.868,
-   1.0
+   0.51,
+   0.1372,
+   0.3,
+   0.3456
   ],
-  "face": "auto",
+  "face": "manual",
   "file": "Cal Quantrill (52442826569) (cropped).jpg",
+  "fix": [
+   0.66,
+   0.31,
+   0.3
+  ],
   "h": 434,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/4e/Cal_Quantrill_%2852442826569%29_%28cropped%29.jpg/500px-Cal_Quantrill_%2852442826569%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY 2.0",
@@ -2092,13 +2124,18 @@
  "642232": {
   "artist": "Bryan Green",
   "crop": [
+   0.21,
    0.0,
-   0.0,
-   1.0,
-   0.7692
+   0.42,
+   0.3231
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Ryan Yarbrough (cropped).jpg",
+  "fix": [
+   0.42,
+   0.11,
+   0.42
+  ],
   "h": 650,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5c/Ryan_Yarbrough_%28cropped%29.jpg/500px-Ryan_Yarbrough_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY-SA 2.0",
@@ -2237,6 +2274,7 @@
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/87/Aaron_Civale_%2848664224692%29_%28cropped%29.jpg/500px-Aaron_Civale_%2848664224692%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY 2.0",
   "page": "https://commons.wikimedia.org/wiki/File:Aaron_Civale_(48664224692)_(cropped).jpg",
+  "rejected": true,
   "v": 2,
   "via": "Wikimedia Commons",
   "w": 500
@@ -2244,13 +2282,18 @@
  "650911": {
   "artist": "Latinos En Pelota",
   "crop": [
-   0.1029,
+   0.24,
    0.0,
-   0.7648,
-   0.7648
+   0.48,
+   0.48
   ],
-  "face": "auto",
+  "face": "manual",
   "file": "Cris Sanchez (tn7yj 4wAM4).png",
+  "fix": [
+   0.48,
+   0.2,
+   0.48
+  ],
   "h": 500,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/6f/Cris_Sanchez_%28tn7yj_4wAM4%29.png/500px-Cris_Sanchez_%28tn7yj_4wAM4%29.png?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY 4.0",
@@ -2443,6 +2486,7 @@
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/38/Jake_Latz_%2853081823342%29_%28cropped%29.jpg/500px-Jake_Latz_%2853081823342%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY-SA 2.0",
   "page": "https://commons.wikimedia.org/wiki/File:Jake_Latz_(53081823342)_(cropped).jpg",
+  "rejected": true,
   "v": 2,
   "via": "Wikimedia Commons",
   "w": 500
@@ -2450,13 +2494,18 @@
  "656731": {
   "artist": "D. Benjamin Miller",
   "crop": [
-   0.2525,
-   0.4259,
-   0.7475,
-   0.5741
+   0.19,
+   0.0,
+   0.72,
+   0.553
   ],
-  "face": "auto",
+  "face": "manual",
   "file": "Tylor Megill, Opening Day 2022.jpg",
+  "fix": [
+   0.55,
+   0.21,
+   0.72
+  ],
   "h": 651,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ac/Tylor_Megill%2C_Opening_Day_2022.jpg/500px-Tylor_Megill%2C_Opening_Day_2022.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC0",
@@ -2468,13 +2517,18 @@
  "656794": {
   "artist": "Thomson200",
   "crop": [
-   0.3845,
+   0.21,
    0.0,
-   0.4665,
-   0.3395
+   0.52,
+   0.3785
   ],
-  "face": "auto",
+  "face": "manual",
   "file": "Sean Newcomb, Sept 18 2018.jpg",
+  "fix": [
+   0.47,
+   0.17,
+   0.52
+  ],
   "h": 687,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/09/Sean_Newcomb%2C_Sept_18_2018.jpg/500px-Sean_Newcomb%2C_Sept_18_2018.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC0",
@@ -3164,13 +3218,18 @@
  "665795": {
   "artist": "D. Benjamin Miller",
   "crop": [
-   0.0,
-   0.0,
-   1.0,
-   0.6667
+   0.4,
+   0.1167,
+   0.34,
+   0.2267
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Edward Cabrera pitching, April 7, 2023 (1) (cropped).jpg",
+  "fix": [
+   0.57,
+   0.23,
+   0.34
+  ],
   "h": 750,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/6a/Edward_Cabrera_pitching%2C_April_7%2C_2023_%281%29_%28cropped%29.jpg/500px-Edward_Cabrera_pitching%2C_April_7%2C_2023_%281%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC0",
@@ -3552,13 +3611,18 @@
  "669372": {
   "artist": "slgckgc",
   "crop": [
-   0.0,
-   0.0,
-   1.0,
-   0.7717
+   0.4,
+   0.0442,
+   0.3,
+   0.2315
   ],
-  "face": "none",
+  "face": "manual",
   "file": "J. T. Ginn (54532351300) (cropped).jpg",
+  "fix": [
+   0.55,
+   0.16,
+   0.3
+  ],
   "h": 473,
   "img": "https://upload.wikimedia.org/wikipedia/commons/6/64/J._T._Ginn_%2854532351300%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
   "license": "CC BY 2.0",
@@ -3592,13 +3656,18 @@
  "669422": {
   "artist": "YESNetwork",
   "crop": [
-   0.034,
-   0.0,
-   0.932,
-   1.0
+   0.34,
+   0.1047,
+   0.42,
+   0.4506
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Matt Sauer (rGN25 L9y5M).png",
+  "fix": [
+   0.55,
+   0.33,
+   0.42
+  ],
   "h": 466,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/43/Matt_Sauer_%28rGN25_L9y5M%29.png/500px-Matt_Sauer_%28rGN25_L9y5M%29.png?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY 3.0",
@@ -3610,13 +3679,18 @@
  "669432": {
   "artist": "D. Benjamin Miller",
   "crop": [
-   0.1,
+   0.38,
    0.0,
-   0.8,
-   1.0
+   0.26,
+   0.325
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Trevor Rogers pitching, April 8, 2023 (1) (cropped).jpg",
+  "fix": [
+   0.51,
+   0.16,
+   0.26
+  ],
   "h": 400,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/5d/Trevor_Rogers_pitching%2C_April_8%2C_2023_%281%29_%28cropped%29.jpg/500px-Trevor_Rogers_pitching%2C_April_8%2C_2023_%281%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC0",
@@ -3995,6 +4069,7 @@
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/fd/Cody_Bolton_%2852341249172%29_%28cropped%29.jpg/500px-Cody_Bolton_%2852341249172%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY 2.0",
   "page": "https://commons.wikimedia.org/wiki/File:Cody_Bolton_(52341249172)_(cropped).jpg",
+  "rejected": true,
   "v": 2,
   "via": "Wikimedia Commons",
   "w": 500
@@ -4170,13 +4245,18 @@
  "677960": {
   "artist": "Ryan Casey Aguinaldo",
   "crop": [
-   0.101,
-   0.0,
-   0.798,
-   1.0
+   0.27,
+   0.0371,
+   0.26,
+   0.3258
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Ryan Weathers 8.11.21.jpg",
+  "fix": [
+   0.4,
+   0.2,
+   0.26
+  ],
   "h": 399,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/65/Ryan_Weathers_8.11.21.jpg/500px-Ryan_Weathers_8.11.21.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY-SA 4.0",
@@ -4236,13 +4316,18 @@
  "678394": {
   "artist": "MrDMan84",
   "crop": [
-   0.0,
-   0.0,
-   1.0,
-   0.7508
+   0.29,
+   0.1549,
+   0.36,
+   0.2703
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Attach0 20220706 191327 Brayan Bello First Pitch.jpg",
+  "fix": [
+   0.47,
+   0.29,
+   0.36
+  ],
   "h": 666,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/eb/Attach0_20220706_191327_Brayan_Bello_First_Pitch.jpg/500px-Attach0_20220706_191327_Brayan_Bello_First_Pitch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY-SA 4.0",
@@ -4479,6 +4564,7 @@
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/bd/Randy_V%C3%A1squez_%28250622-M-RY841-1242%29_%28cropped%29.jpg/500px-Randy_V%C3%A1squez_%28250622-M-RY841-1242%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "Public domain",
   "page": "https://commons.wikimedia.org/wiki/File:Randy_V%C3%A1squez_(250622-M-RY841-1242)_(cropped).jpg",
+  "rejected": true,
   "v": 2,
   "via": "Wikimedia Commons",
   "w": 500
@@ -4836,13 +4922,18 @@
  "686993": {
   "artist": "Kachow03",
   "crop": [
+   0.195,
    0.0,
-   0.0,
-   1.0,
-   0.612
+   0.45,
+   0.2754
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Justin Sterner-1.jpg",
+  "fix": [
+   0.42,
+   0.1,
+   0.45
+  ],
   "h": 817,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8a/Justin_Sterner-1.jpg/500px-Justin_Sterner-1.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY 4.0",
@@ -4927,6 +5018,7 @@
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/30/DJ_Herz_%2853616050454%29_%28cropped%29.jpg/500px-DJ_Herz_%2853616050454%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY 2.0",
   "page": "https://commons.wikimedia.org/wiki/File:DJ_Herz_(53616050454)_(cropped).jpg",
+  "rejected": true,
   "v": 2,
   "via": "Wikimedia Commons",
   "w": 500
@@ -4954,13 +5046,18 @@
  "687941": {
   "artist": "Joel Dinda from Mulliken, Michigan",
   "crop": [
-   0.0,
-   0.0,
-   1.0,
-   1.0
+   0.34,
+   0.01,
+   0.32,
+   0.32
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Alec Gamboa 2 (51211825871) (cropped).jpg",
+  "fix": [
+   0.5,
+   0.17,
+   0.32
+  ],
   "h": 500,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/bd/Alec_Gamboa_2_%2851211825871%29_%28cropped%29.jpg/500px-Alec_Gamboa_2_%2851211825871%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY 2.0",
@@ -5168,13 +5265,18 @@
  "694363": {
   "artist": "Minda Haas Kuhlmann",
   "crop": [
-   0.0705,
-   0.2831,
-   0.9148,
-   0.7169
+   0.66,
+   0.0,
+   0.34,
+   0.2665
   ],
-  "face": "auto",
+  "face": "manual",
   "file": "Jared Shuster (52833765399) (cropped).jpg",
+  "fix": [
+   0.83,
+   0.1,
+   0.34
+  ],
   "h": 638,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/dc/Jared_Shuster_%2852833765399%29_%28cropped%29.jpg/500px-Jared_Shuster_%2852833765399%29_%28cropped%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY 2.0",
@@ -5216,13 +5318,18 @@
  "694819": {
   "artist": "Drovetochicago",
   "crop": [
-   0.154,
-   0.0,
-   0.692,
-   1.0
+   0.36,
+   0.141,
+   0.22,
+   0.3179
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Jacob Misiorowski.jpg",
+  "fix": [
+   0.47,
+   0.3,
+   0.22
+  ],
   "h": 346,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c7/Jacob_Misiorowski.jpg/500px-Jacob_Misiorowski.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY-SA 4.0",
@@ -5334,13 +5441,18 @@
  "696070": {
   "artist": "Sxchen1110",
   "crop": [
+   0.42,
    0.0,
-   0.0,
-   1.0,
-   0.7496
+   0.3,
+   0.2249
   ],
-  "face": "none",
+  "face": "manual",
   "file": "Kendry Rojas in Seattle.jpg",
+  "fix": [
+   0.57,
+   0.09,
+   0.3
+  ],
   "h": 667,
   "img": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9d/Kendry_Rojas_in_Seattle.jpg/500px-Kendry_Rojas_in_Seattle.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
   "license": "CC BY 4.0",
