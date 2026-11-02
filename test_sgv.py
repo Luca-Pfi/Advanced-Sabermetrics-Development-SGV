@@ -71,6 +71,26 @@ def fake_get_json(path, params=None, retries=4):
 
 sgv.get_json = fake_get_json
 
+# Wikimedia, offline: pitcher 10 has a photo, the others have none.
+sgv.PHOTOS_FILE = tmp / "player_photos.json"
+wiki_calls = []
+def fake_wiki_post(url, data):
+    wiki_calls.append("sparql")
+    assert "wdt:P3541" in data["query"]
+    return {"results": {"bindings": [{"id": {"value": "10"},
+            "image": {"value": "http://commons.wikimedia.org/wiki/Special:FilePath/Rocky%20Starter%202024.jpg"}}]}}
+def fake_wiki_get(url, params):
+    wiki_calls.append("commons")
+    assert params["titles"] == "File:Rocky Starter 2024.jpg"
+    return {"query": {"normalized": [{"from": "File:Rocky Starter 2024.jpg", "to": "File:Rocky Starter 2024.jpg"}],
+            "pages": {"1": {"title": "File:Rocky Starter 2024.jpg", "imageinfo": [{
+                "thumburl": "https://upload.wikimedia.org/thumb/rocky.jpg/240px-rocky.jpg",
+                "url": "https://upload.wikimedia.org/rocky.jpg",
+                "descriptionurl": "https://commons.wikimedia.org/wiki/File:Rocky_Starter_2024.jpg",
+                "extmetadata": {"Artist": {"value": '<a href="//commons.wikimedia.org/wiki/User:Ann">Ann &amp; Co</a>'},
+                                "LicenseShortName": {"value": "CC BY-SA 4.0"}}}]}}}}
+sgv._wiki_post, sgv._wiki_get = fake_wiki_post, fake_wiki_get
+
 # 1st run: no park factors -> template created, returns False
 assert sgv.run([2025, 2026], 0.40, 3) is False
 print(sgv.PARK_FACTORS_FILE.read_text())
@@ -178,6 +198,24 @@ assert abs(th[2027]["sgv_w_below"] - th[2026]["sgv_w_below"]) < 0.3
 saved = dict(th[2027])
 th2 = sgv.season_thresholds(fake + [{"season": 2027, "SGV": 5.0, "team_result": "W"}] * 500, 0.35)
 assert th2[2027]["sgv_w_below"] == saved["sgv_w_below"] and th2[2027]["nd_band"] == 0.40  # frozen
+
+# player photos: matched through Wikidata, credited, cached; missing ones retried after 30 days
+photos = json.loads(sgv.PHOTOS_FILE.read_text())
+assert photos["10"]["img"].endswith("240px-rocky.jpg") and photos["10"]["artist"] == "Ann & Co"
+assert photos["10"]["license"] == "CC BY-SA 4.0" and photos["20"]["none"] is True
+assert data[0]["players"] and json.loads(re.search(r"const META = (.*);\n", report).group(1))["photos"] == {
+    "10": [photos["10"]["img"], photos["10"]["page"], "Ann & Co", "CC BY-SA 4.0"]}
+calls = wiki_calls.count("sparql")
+sgv.update_player_photos([10, 20, 30, 40])           # all checked recently: no new lookup
+assert wiki_calls.count("sparql") == calls
+photos["20"]["checked"] = "2020-01-01"; sgv.PHOTOS_FILE.write_text(json.dumps(photos))
+sgv.update_player_photos([10, 20])                   # stale "no photo" entry is looked up again
+assert wiki_calls.count("sparql") == calls + 1
+def offline(*a, **k):
+    raise sgv.requests.ConnectionError("no network")
+sgv._wiki_post = offline
+photos["20"]["checked"] = "2020-01-01"; sgv.PHOTOS_FILE.write_text(json.dumps(photos))
+assert sgv.update_player_photos([10, 20])["10"]["img"]   # Wikimedia down: keep what we have, no crash
 
 shutil.rmtree(tmp)
 print("ALL CHECKS PASSED")

@@ -76,7 +76,7 @@ def season_pitchers(df, season, qualifier):
     return sorted(players, key=lambda x: x["n"])
 
 
-def write_report(df, league_rows, thresholds, path):
+def write_report(df, league_rows, thresholds, path, photos=None):
     league = {r["season"]: r for r in league_rows}
     seasons = sorted(df["season"].unique())
     data = []
@@ -98,6 +98,10 @@ def write_report(df, league_rows, thresholds, path):
         })
         data.append(board)
     meta = {"through": str(df["date"].max())}   # last game in the data, not the run time
+    # Player photos for the starters on the page: id -> [thumbnail, file page, author, licence]
+    ids = {str(i) for i in df["pitcher_id"].unique()}
+    meta["photos"] = {pid: [p["img"], p["page"], p["artist"], p["license"]]
+                      for pid, p in sorted((photos or {}).items()) if pid in ids and p.get("img")}
     page = TEMPLATE.replace("__DATA__", json.dumps(data, ensure_ascii=False, separators=(",", ":")))
     page = page.replace("__META__", json.dumps(meta))
     path.write_text(page, encoding="utf-8")
@@ -252,7 +256,10 @@ table.t { width: 100%; border-collapse: collapse; font-size: 15px; }
 .search li[aria-selected="true"], .search li:hover { background: var(--row); }
 .pgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .card-top { text-align: center; }
-.avatar { width: 92px; height: 92px; margin: 4px auto 8px; border-radius: 50%; border: 3px solid var(--border);
+.avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; object-position: 50% 20%; display: block; }
+.credit { font-size: 12px; color: var(--ink-4); margin: 6px 0 0; }
+.credit a { color: var(--ink-3); text-decoration: underline; }
+.avatar { width: 92px; height: 92px; margin: 4px auto 8px; border-radius: 50%; border: 3px solid var(--border); overflow: hidden;
           background: var(--row); color: var(--rule); display: grid; place-items: center; font-size: 34px; font-weight: 700; }
 .pname { font-size: 36px; color: var(--ink); margin: 0; line-height: 1.1; }
 .pline { font-size: 19px; color: var(--ink-2); margin: 4px 0 2px; }
@@ -382,6 +389,7 @@ footer a { color: #fff; text-decoration: underline; }
                role="combobox" aria-expanded="false" aria-controls="matches" aria-autocomplete="list" aria-label="Search a pitcher">
         <ul id="matches" role="listbox" hidden></ul>
       </div>
+      <p class="psub" style="margin:0 0 8px">Type a name to see a pitcher's SGV profile, percentile rankings and game log.</p>
     </div>
     <div id="player"></div>
   </section>
@@ -622,15 +630,21 @@ function profileCard(p, d) {
     avg: sum((q) => q.avg * q.g.length) / sum((q) => q.g.length) };
   const initials = p.n.split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("");
   const rank = p.rank ? `SGV rank #${p.rank} of ${d.qualified} qualified` : `Not qualified in ${d.season} (min. ${d.qualifier} GS)`;
+  const ph = META.photos[p.id];
+  const avatar = ph
+    ? `<div class="avatar" data-initials="${esc(initials)}"><img src="${esc(ph[0])}" alt="${esc(p.n)}" loading="lazy" referrerpolicy="no-referrer"></div>`
+    : `<div class="avatar" aria-hidden="true">${esc(initials)}</div>`;
+  const credit = ph
+    ? `<p class="credit">Photo: <a href="${esc(ph[1])}" target="_blank" rel="noopener">${esc(ph[2])}</a> · ${esc(ph[3])} · Wikimedia Commons</p>` : "";
   return `<div class="panel card"><div class="card-top">
-      <div class="avatar" aria-hidden="true">${esc(initials)}</div>
+      ${avatar}
       <h3 class="pname">${esc(p.n)}</h3>
       <p class="pline">SP | ${esc(p.t)} | ${d.season}</p>
       <p class="pline2">${rank}</p></div>
     <div class="scroll"><table class="t"><thead><tr><th class="l">Season</th><th>GS</th><th>IP</th><th>ERA</th><th>SGV</th>
       <th>Real</th><th class="hide-sm">Swing</th><th>Avg</th></tr></thead>
       <tbody>${rows}${seasons.length > 1 ? row("Total", tot, "total") : ""}</tbody></table></div>
-    <p class="note">SGV and Real are W-L records; Avg is the mean SGV per start (lower is better).</p></div>`;
+    <p class="note">SGV and Real are W-L records; Avg is the mean SGV per start (lower is better).</p>${credit}</div>`;
 }
 
 function percentilePanel(p, d) {
@@ -703,9 +717,8 @@ function renderLookup() {
     box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => renderSeason(+b.dataset.season)));
     return;
   }
-  // No search yet: show the season's SGV leader.
-  const shown = p || d.players.find((x) => x.rank === 1) || d.players[0];
-  if (!p) searchBox.placeholder = `Search any starter (showing ${shown.n})`;
+  if (!p) { box.replaceChildren(); return; }   // nothing shown until a pitcher is searched
+  const shown = p;
   box.innerHTML = `<div class="pgrid" style="margin-top:16px">
       ${profileCard(shown, d)}
       ${percentilePanel(shown, d)}
@@ -720,6 +733,13 @@ function renderLookup() {
         shown.g.map(([date, opp, ha, outs, er, sgv, dec, act, res]) => `<tr><td class="l">${date}</td><td class="l">${ha === "H" ? "vs" : "@"} ${esc(opp)}</td>
         <td>${ipText(outs)}</td><td>${er}</td><td>${dec2(sgv)}</td><td><span class="dec dec-${dec}">${dec}</span></td><td>${act}</td>
         <td class="hide-sm">${res}</td></tr>`).join("")}</tbody></table></div></details></div>`;
+  // A photo that fails to load falls back to the initials.
+  box.querySelectorAll(".avatar img").forEach((img) => img.addEventListener("error", () => {
+    const a = img.parentNode;
+    a.textContent = a.dataset.initials;
+    a.setAttribute("aria-hidden", "true");
+    a.closest(".panel").querySelector(".credit")?.remove();
+  }));
   const holder = document.getElementById("roll-chart");
   holder.append(rollingChart(shown, d, Math.round(holder.clientWidth)));
 }

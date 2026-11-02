@@ -40,13 +40,16 @@ Outputs: sgv_records.xlsx (records, every start, model) and sgv_report.html
 
 import argparse
 import csv
+import html
 import json
+import re
 import sys
 import time
 import webbrowser
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import unquote
 
 import numpy as np
 import pandas as pd
@@ -61,6 +64,7 @@ PARK_FACTORS_FILE = HERE / "park_factors.csv"
 OUTPUT_FILE = HERE / "sgv_records.xlsx"
 REPORT_FILE = HERE / "sgv_report.html"
 THRESHOLDS_FILE = HERE / "nd_thresholds.csv"
+PHOTOS_FILE = HERE / "player_photos.json"
 
 ND_BAND = 0.40          # SGV ND when the team's win probability is between 40% and 60%
 BLEND_GAMES = 60        # league averages are 100% current season after 60 team games
@@ -428,6 +432,100 @@ def update_park_factor_file(pf, season, starts):
 
 
 # --------------------------------------------------------------------------
+# Player photos (Wikimedia Commons, matched through Wikidata)
+# --------------------------------------------------------------------------
+
+WIKIDATA_SPARQL = "https://query.wikidata.org/sparql"
+COMMONS_API = "https://commons.wikimedia.org/w/api.php"
+WIKI_HEADERS = {"User-Agent": "SGV-leaderboards/1.0 "
+                              "(https://github.com/Luca-Pfi/Advanced-Sabermetrics-Development-SGV)"}
+PHOTO_RETRY_DAYS = 30   # pitchers without a photo are looked up again after this many days
+
+
+def _wiki_post(url, data):
+    r = requests.post(url, data=data, headers=WIKI_HEADERS, timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+
+def _wiki_get(url, params):
+    r = requests.get(url, params=params, headers=WIKI_HEADERS, timeout=60)
+    r.raise_for_status()
+    return r.json()
+
+
+def _plain(text):
+    """Commons metadata is HTML; keep the words."""
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", "", text or ""))).strip()
+
+
+def wikidata_images(mlb_ids):
+    """MLB player id -> Commons file name, through Wikidata's "MLB.com player ID" (P3541)."""
+    found = {}
+    for i in range(0, len(mlb_ids), 200):
+        values = " ".join(f'"{x}"' for x in mlb_ids[i:i + 200])
+        query = (f"SELECT ?id ?image WHERE {{ VALUES ?id {{ {values} }} "
+                 f"?item wdt:P3541 ?id . ?item wdt:P18 ?image . }}")
+        for b in _wiki_post(WIKIDATA_SPARQL, {"query": query, "format": "json"})["results"]["bindings"]:
+            found.setdefault(b["id"]["value"], unquote(b["image"]["value"].rsplit("/", 1)[-1]))
+    return found
+
+
+def commons_info(files):
+    """Commons file name -> 240 px thumbnail, file page, author and licence."""
+    info = {}
+    for i in range(0, len(files), 50):
+        chunk = files[i:i + 50]
+        data = _wiki_get(COMMONS_API, {
+            "action": "query", "format": "json", "prop": "imageinfo", "iiprop": "url|extmetadata",
+            "iiurlwidth": 240, "titles": "|".join(f"File:{f}" for f in chunk)})["query"]
+        renamed = {n["from"]: n["to"] for n in data.get("normalized", [])}
+        pages = {pg["title"]: pg for pg in data.get("pages", {}).values()}
+        for f in chunk:
+            page = pages.get(renamed.get(f"File:{f}", f"File:{f}"), {})
+            ii = (page.get("imageinfo") or [{}])[0]
+            meta = ii.get("extmetadata", {})
+            if ii.get("thumburl") or ii.get("url"):
+                info[f] = {"img": ii.get("thumburl") or ii["url"], "page": ii.get("descriptionurl", ""),
+                           "artist": _plain(meta.get("Artist", {}).get("value"))[:80] or "Unknown author",
+                           "license": _plain(meta.get("LicenseShortName", {}).get("value")) or "see file page"}
+    return info
+
+
+def load_photos():
+    return json.loads(PHOTOS_FILE.read_text()) if PHOTOS_FILE.exists() else {}
+
+
+def update_player_photos(mlb_ids):
+    """Look up photos for pitchers not checked yet, cached in player_photos.json.
+
+    Photos are optional: if Wikimedia can't be reached, the page keeps the
+    initials and the run carries on.
+    """
+    photos = load_photos()
+    today = pd.Timestamp.today()
+    todo = [str(i) for i in mlb_ids
+            if str(i) not in photos
+            or (photos[str(i)].get("none")
+                and today - pd.Timestamp(photos[str(i)]["checked"]) > pd.Timedelta(days=PHOTO_RETRY_DAYS))]
+    if todo:
+        try:
+            files = wikidata_images(todo)
+            info = commons_info(sorted(set(files.values())))
+        except (requests.RequestException, ValueError, KeyError) as e:
+            print(f"Player photos skipped, Wikimedia not reachable ({e.__class__.__name__})")
+            return photos
+        for pid in todo:
+            photo = info.get(files.get(pid))
+            photos[pid] = ({**photo, "file": files[pid]} if photo
+                           else {"none": True, "checked": today.strftime("%Y-%m-%d")})
+        PHOTOS_FILE.write_text(json.dumps(photos, indent=1, sort_keys=True, ensure_ascii=False) + "\n")
+        print(f"Player photos: {sum(1 for p in todo if 'img' in photos[p])} of {len(todo)} newly checked "
+              f"starters have a Wikimedia photo")
+    return photos
+
+
+# --------------------------------------------------------------------------
 # Main
 # --------------------------------------------------------------------------
 
@@ -481,8 +579,9 @@ def run(seasons, band, refresh_days, open_report=False):
         s["win_prob"] = win_probability(s["SGV"], (t["curve_a"], t["curve_b"]))
         s["SGV_dec"] = sgv_decision(s["SGV"], t["sgv_w_below"], t["sgv_l_above"])
 
+    photos = update_player_photos(sorted({s["pitcher_id"] for s in all_starts}))
     write_output(all_starts, league_rows, seasons, thresholds)
-    write_report(pd.DataFrame(all_starts), league_rows, thresholds, REPORT_FILE)
+    write_report(pd.DataFrame(all_starts), league_rows, thresholds, REPORT_FILE, photos)
     print(f"\nWrote {OUTPUT_FILE}\nWrote {REPORT_FILE}")
     if open_report:
         webbrowser.open(REPORT_FILE.as_uri())

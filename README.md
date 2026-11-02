@@ -116,11 +116,13 @@ This scores the 2025 and 2026 regular seasons and then:
 
 The *swing* is (SGV W − SGV L) − (real W − real L). Click a pitcher's name in any table to open their player page.
 
-The **player search** covers every starter of the selected season, qualified or not (accents optional: "sanchez" finds Sánchez). It shows the season's SGV leader until you search. Each player page has:
-- a **profile card** with a season-by-season table (GS, IP, ERA, SGV and real records, swing, average SGV) and a totals row;
+The **player search** covers every starter of the selected season, qualified or not (accents optional: "sanchez" finds Sánchez). Nothing is shown until you search. Each player page has:
+- a **profile card** with the pitcher's photo and a season-by-season table (GS, IP, ERA, SGV and real records, swing, average SGV) and a totals row;
 - **SGV percentile rankings** among qualified starters: Avg SGV, SGV Win %, SGV Loss %, SGV W − L, ERA, IP per start, Quality Start % (6+ IP, 3 or fewer ER) and Short Start % (under 5 IP);
 - a **5-start rolling SGV** chart with the league average and the W/L cut-offs, plus a strip of each start's SGV decision;
 - the full **game log**.
+
+**Player photos** come from Wikimedia Commons. Each pitcher's MLB ID is matched to their Wikipedia/Wikidata entry (Wikidata property P3541, "MLB.com player ID"), so there's no guessing by name. The photo's author and licence are credited under the profile card. Photos are cached in `player_photos.json`: new pitchers are looked up on the next run, and pitchers without a photo are checked again after 30 days. They keep their initials meanwhile, or if Wikimedia can't be reached.
 
 A lookup can be shared as a link, e.g. `…/Advanced-Sabermetrics-Development-SGV/#pitcher=Paul%20Skenes&season=2025`.
 
@@ -208,6 +210,7 @@ The tests run the whole pipeline offline on a small simulated season, without co
 | `sgv_report.py` | HTML leaderboards |
 | `park_factors.csv` | Park factors per season and ballpark |
 | `nd_thresholds.csv` | ND thresholds per season (fixed once calibrated) |
+| `player_photos.json` | Player photos from Wikimedia Commons, with author and licence (cached) |
 | `test_sgv.py` | Offline tests |
 | `.github/workflows/sgv-daily.yml` | Daily update and GitHub Pages publication |
 | `sgv_records.xlsx`, `sgv_report.html` | Latest results (updated daily during the season) |
